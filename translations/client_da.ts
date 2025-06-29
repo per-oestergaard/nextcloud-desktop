@@ -5483,22 +5483,22 @@ Server replied with error: %2</source>
     <message>
         <location filename="../src/gui/tray/syncstatussummary.cpp" line="221"/>
         <source>Syncing</source>
-        <translation type="unfinished"/>
+        <translation>Synkroniserer</translation>
     </message>
     <message>
         <location filename="../src/gui/tray/syncstatussummary.cpp" line="234"/>
         <source>%1 of %2 · %3 left</source>
-        <translation type="unfinished"/>
+        <translation>%1 af %2 · %3 mangler</translation>
     </message>
     <message>
         <location filename="../src/gui/tray/syncstatussummary.cpp" line="238"/>
         <source>%1 of %2</source>
-        <translation type="unfinished"/>
+        <translation>%1 af %2</translation>
     </message>
     <message>
         <location filename="../src/gui/tray/syncstatussummary.cpp" line="243"/>
         <source>Syncing file %1 of %2</source>
-        <translation type="unfinished"/>
+        <translation>Synkroniserer fil %1 af %2</translation>
     </message>
 </context>
 <context>
@@ -5516,19 +5516,19 @@ Server replied with error: %2</source>
     <message>
         <location filename="../src/gui/systray.cpp" line="187"/>
         <source>Open main dialog</source>
-        <translation>Åben hoved dialog</translation>
+        <translation>Vis %1</translation>
     </message>
     <message>
         <location filename="../src/gui/systray.cpp" line="190"/>
         <location filename="../src/gui/systray.cpp" line="200"/>
         <source>Pause sync</source>
-        <translation>Pause sync</translation>
+        <translation>Sæt synkronisering på pause</translation>
     </message>
     <message>
         <location filename="../src/gui/systray.cpp" line="191"/>
         <location filename="../src/gui/systray.cpp" line="206"/>
         <source>Resume sync</source>
-        <translation>Genoptag sync</translation>
+        <translation>Genoptag synkronisering</translation>
     </message>
     <message>
         <location filename="../src/gui/systray.cpp" line="192"/>
@@ -5561,7 +5561,7 @@ Server replied with error: %2</source>
     <message>
         <location filename="../src/gui/wizard/termsofservicecheckwidget.cpp" line="134"/>
         <source>Waiting for terms to be accepted</source>
-        <translation>Venter på, at vilkårene bliver accepteret</translation>
+        <translation>Venter på, at brugsvilkårene bliver accepteret</translation>
     </message>
     <message>
         <location filename="../src/gui/wizard/termsofservicecheckwidget.cpp" line="140"/>
@@ -5571,7 +5571,7 @@ Server replied with error: %2</source>
     <message>
         <location filename="../src/gui/wizard/termsofservicecheckwidget.cpp" line="146"/>
         <source>Link copied to clipboard.</source>
-        <translation>Linket kopieret til udklipsholderen.</translation>
+        <translation>Linket er kopieret til udklipsholderen.</translation>
     </message>
     <message>
         <location filename="../src/gui/wizard/termsofservicecheckwidget.cpp" line="187"/>
