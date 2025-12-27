@@ -142,6 +142,16 @@ namespace FileSystem {
      */
     bool OCSYNC_EXPORT openAndSeekFileSharedRead(QFile *file, QString *error, qint64 seek);
 
+    /**
+     * Returns `path + "/" + file` with native directory separators.
+     * 
+     * If `path` ends in a directory separator this method will not insert another one in-between.
+     *
+     * In the case one of the parameters is empty, the other parameter will be returned with native
+     * directory separators and a warning is logged.
+     */
+    QString OCSYNC_EXPORT joinPath(const QString &path, const QString &file);
+
 #ifdef Q_OS_WIN
     /**
      * Returns the file system used at the given path.
@@ -165,7 +175,7 @@ namespace FileSystem {
     std::filesystem::perms OCSYNC_EXPORT filePermissionsWin(const QString &filename);
     void OCSYNC_EXPORT setFilePermissionsWin(const QString &filename, const std::filesystem::perms &perms);
 
-    bool OCSYNC_EXPORT setAclPermission(const QString &path, FileSystem::FolderPermissions permissions, bool applyAlsoToFiles);
+    bool OCSYNC_EXPORT setAclPermission(const QString &path, FileSystem::FolderPermissions permissions);
 #endif
 
     /**

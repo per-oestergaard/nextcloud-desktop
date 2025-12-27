@@ -20,7 +20,11 @@ if (CLANG_TIDY_EXE)
     set(CMAKE_CXX_CLANG_TIDY ${CLANG_TIDY_EXE} -checks=-*,modernize-use-auto,modernize-use-using,modernize-use-nodiscard,modernize-use-nullptr,modernize-use-override,cppcoreguidelines-pro-type-static-cast-downcast,modernize-use-default-member-init,cppcoreguidelines-pro-type-member-init,cppcoreguidelines-init-variables)
 endif()
 
-set(CMAKE_XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME NO)
+else()
+    set(CMAKE_XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES)
+endif()
 
 set(BIN_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
@@ -59,6 +63,7 @@ else()
 endif()
 
 option( APPLICATION_DISPLAY_LEGACY_IMPORT_DIALOG "Display legacy import dialog" ON )
+option( DISABLE_ACCOUNT_MIGRATION "Exclude legacy account migration and import" OFF )
 
 # For usage in XML files we preprocess
 string(REPLACE "&" "&amp;" APPLICATION_NAME_XML_ESCAPED "${APPLICATION_NAME}")
@@ -77,7 +82,20 @@ if (NOT DEFINED PACKAGE)
     set(PACKAGE "${LINUX_PACKAGE_SHORTNAME}-client")
 endif()
 
-set( CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules )
+set(APPLE_SUPPRESS_X11_WARNING ON)
+
+find_package(ECM 6.0.0 REQUIRED NO_MODULE)
+set_package_properties(ECM PROPERTIES TYPE REQUIRED DESCRIPTION "Extra CMake Modules." URL "https://invent.kde.org/frameworks/extra-cmake-modules")
+
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules ${ECM_MODULE_PATH} ${CMAKE_MODULE_PATH})
+
+include(KDEInstallDirs)
+include(KDECMakeSettings)
+include(ECMMarkNonGuiExecutable)
+include(ECMSetupVersion)
+
+#include(KDECompilerSettings NO_POLICY_SCOPE)
+include(ECMEnableSanitizers)
 
 include(ECMCoverageOption)
 
@@ -219,10 +237,6 @@ if(OWNCLOUD_5XX_NO_BLACKLIST)
     add_definitions(-DOWNCLOUD_5XX_NO_BLACKLIST=1)
 endif()
 
-if(APPLE)
-  set( SOCKETAPI_TEAM_IDENTIFIER_PREFIX "" CACHE STRING "SocketApi prefix (including a following dot) that must match the codesign key's TeamIdentifier/Organizational Unit" )
-endif()
-
 if(BUILD_CLIENT)
     OPTION(GUI_TESTING "Build with gui introspection features of socket api" OFF)
 
@@ -355,15 +369,24 @@ elseif(BUILD_CLIENT)
     configure_file(sync-exclude.lst bin/sync-exclude.lst COPYONLY)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND BUILD_CLIENT)
+if(LINUX AND BUILD_CLIENT)
+    set(bindir ${CMAKE_INSTALL_FULL_BINDIR})
+    configure_file(systemd/nextcloud-desktop.service.in "${CMAKE_CURRENT_BINARY_DIR}/${LINUX_APPLICATION_ID}.service")
+
+    pkg_check_modules(SYSTEMD systemd IMPORTED_TARGET)
+    set_package_properties(systemd PROPERTIES
+        DESCRIPTION "Systemd development files needed to install user service"
+        TYPE OPTIONAL
+    )
     pkg_get_variable(SYSTEMD_USER_UNIT_DIR systemd "systemd_user_unit_dir")
     if (SYSTEMD_USER_UNIT_DIR)
+        message(STATUS "Systemd development files found. Enable installing systemd user service.")
         option(INSTALL_SYSTEMD "Install systemd user service" ON)
         if(INSTALL_SYSTEMD)
-            set(bindir ${CMAKE_INSTALL_FULL_BINDIR})
-            configure_file(systemd/nextcloud-desktop.service.in "${CMAKE_CURRENT_BINARY_DIR}/${LINUX_APPLICATION_ID}.service")
             install(FILES "${CMAKE_CURRENT_BINARY_DIR}/${LINUX_APPLICATION_ID}.service" DESTINATION "${SYSTEMD_USER_UNIT_DIR}")
         endif()
+    else()
+        message(STATUS "Systemd development files not found. Not installing systemd user service.")
     endif()
 endif()
 

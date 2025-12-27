@@ -18,12 +18,14 @@
 #include <QElapsedTimer>
 #include <QDateTime>
 #include <QTimer>
+#include <optional>
 
 class QUrl;
 
 namespace OCC {
 
 class AbstractSslErrorHandler;
+class AccessManager;
 
 /**
  * @brief The AbstractNetworkJob class
@@ -104,6 +106,9 @@ public:
     /** static variable the HTTP timeout (in seconds). If set to 0, the default will be used
      */
     static int httpTimeout;
+
+    /// Returns a standardised error message in case of HSTS errors
+    [[nodiscard]] static std::optional<QString> hstsErrorStringFromReply(QNetworkReply *reply);
 
 public slots:
     void setTimeout(qint64 msec);

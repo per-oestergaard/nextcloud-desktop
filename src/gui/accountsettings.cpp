@@ -185,7 +185,7 @@ AccountSettings::AccountSettings(AccountState *accountState, QWidget *parent)
     _ui->_folderList->header()->hide();
     _ui->_folderList->setItemDelegate(delegate);
     _ui->_folderList->setModel(_model);
-#if defined(Q_OS_MAC)
+#if defined(Q_OS_MACOS)
     _ui->_folderList->setMinimumWidth(400);
 #else
     _ui->_folderList->setMinimumWidth(300);
@@ -193,16 +193,14 @@ AccountSettings::AccountSettings(AccountState *accountState, QWidget *parent)
     new ToolTipUpdater(_ui->_folderList);
 
 #if defined(BUILD_FILE_PROVIDER_MODULE)
-    if (Mac::FileProvider::fileProviderAvailable()) {
-        const auto fileProviderTab = _ui->fileProviderTab;
-        const auto fpSettingsLayout = new QVBoxLayout(fileProviderTab);
-        const auto fpAccountUserIdAtHost = _accountState->account()->userIdAtHostWithPort();
-        const auto fpSettingsController = Mac::FileProviderSettingsController::instance();
-        const auto fpSettingsWidget = fpSettingsController->settingsViewWidget(fpAccountUserIdAtHost, fileProviderTab);
-        fpSettingsLayout->setContentsMargins(0, 0, 0, 0);
-        fpSettingsLayout->addWidget(fpSettingsWidget);
-        fileProviderTab->setLayout(fpSettingsLayout);
-    }
+    const auto fileProviderTab = _ui->fileProviderTab;
+    const auto fpSettingsLayout = new QVBoxLayout(fileProviderTab);
+    const auto fpAccountUserIdAtHost = _accountState->account()->userIdAtHostWithPort();
+    const auto fpSettingsController = Mac::FileProviderSettingsController::instance();
+    const auto fpSettingsWidget = fpSettingsController->settingsViewWidget(fpAccountUserIdAtHost, fileProviderTab);
+    fpSettingsLayout->setContentsMargins(0, 0, 0, 0);
+    fpSettingsLayout->addWidget(fpSettingsWidget);
+    fileProviderTab->setLayout(fpSettingsLayout);
 #else
     const auto tabWidget = _ui->tabWidget;
     const auto fileProviderTab = _ui->fileProviderTab;
@@ -274,7 +272,11 @@ AccountSettings::AccountSettings(AccountState *accountState, QWidget *parent)
      _ui->quotaProgressBar->setStyleSheet(QString::fromLatin1(progressBarStyleC).arg(color.name()));*/
 
     // Connect E2E stuff
-    setupE2eEncryption();
+    if (_accountState->isConnected()) {
+        setupE2eEncryption();
+    } else {
+        _ui->encryptionMessage->setText(tr("End-to-end encryption has not been initialized on this account."));
+    }
     _ui->encryptionMessage->setCloseButtonVisible(false);
 
     _ui->connectLabel->setText(tr("No account configured."));
@@ -322,7 +324,7 @@ void AccountSettings::slotE2eEncryptionGenerateKeys()
     connect(_accountState->account()->e2e(), &ClientSideEncryption::initializationFinished, this, &AccountSettings::slotE2eEncryptionInitializationFinished);
     _accountState->account()->setE2eEncryptionKeysGenerationAllowed(true);
     _accountState->account()->setAskUserForMnemonic(true);
-    _accountState->account()->e2e()->initialize(this, _accountState->account());
+    _accountState->account()->e2e()->initialize(this);
 }
 
 void AccountSettings::slotE2eEncryptionInitializationFinished(bool isNewMnemonicGenerated)
@@ -390,7 +392,7 @@ void AccountSettings::doExpand()
 
 bool AccountSettings::canEncryptOrDecrypt(const FolderStatusModel::SubFolderInfo *info)
 {
-    if (const auto folderSyncStatus = info->_folder->syncResult().status(); folderSyncStatus != SyncResult::Status::Success) {
+    if (const auto folderSyncStatus = info->_folder->syncResult().status(); info->_fileId.isEmpty()) {
         auto message = tr("Please wait for the folder to sync before trying to encrypt it.");
         if (folderSyncStatus == SyncResult::Status::Problem) {
             message = tr("The folder has a minor sync problem. Encryption of this folder will be possible once it has synced successfully");
@@ -524,7 +526,7 @@ void AccountSettings::slotOpenMakeFolderDialog()
         folderCreationDialog->setAttribute(Qt::WA_DeleteOnClose);
         folderCreationDialog->open();
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
         // The macOS FolderWatcher cannot detect file and folder changes made by the watching process -- us.
         // So we need to manually invoke the slot that is called by watched folder changes.
         connect(folderCreationDialog, &FolderCreationDialog::folderCreated, this, [folder, fileName](const QString &fullFolderPath) {
@@ -958,7 +960,7 @@ void AccountSettings::slotEnableVfsCurrentFolder()
             folder->setRootPinState(PinState::Unspecified);
             for (const auto &entry : oldBlacklist) {
                 folder->journalDb()->schedulePathForRemoteDiscovery(entry);
-                if (!folder->vfs().setPinState(entry, PinState::OnlineOnly)) {
+                if (FileSystem::fileExists(entry) && !folder->vfs().setPinState(entry, PinState::OnlineOnly)) {
                     qCWarning(lcAccountSettings) << "Could not set pin state of" << entry << "to online only";
                 }
             }
@@ -1129,7 +1131,7 @@ void AccountSettings::forgetEncryptionOnDeviceForAccount(const AccountPtr &accou
     case QMessageBox::Ok:
         connect(account->e2e(), &ClientSideEncryption::sensitiveDataForgotten,
                 this, &AccountSettings::forgetE2eEncryption);
-        account->e2e()->forgetSensitiveData(account);
+        account->e2e()->forgetSensitiveData();
         break;
     case QMessageBox::Cancel:
         break;
@@ -1139,7 +1141,8 @@ void AccountSettings::forgetEncryptionOnDeviceForAccount(const AccountPtr &accou
 
 void AccountSettings::migrateCertificateForAccount(const AccountPtr &account)
 {
-    for (const auto action : _ui->encryptionMessage->actions()) {
+    const auto &allActions = _ui->encryptionMessage->actions();
+    for (const auto action : allActions) {
         _ui->encryptionMessage->removeAction(action);
     }
 
@@ -1693,13 +1696,14 @@ void AccountSettings::setupE2eEncryption()
             }
         });
         _accountState->account()->setE2eEncryptionKeysGenerationAllowed(false);
-        _accountState->account()->e2e()->initialize(this, _accountState->account());
+        _accountState->account()->e2e()->initialize(this);
     }
 }
 
 void AccountSettings::forgetE2eEncryption()
 {
-    for (const auto action : _ui->encryptionMessage->actions()) {
+    const auto &allActions = _ui->encryptionMessage->actions();
+    for (const auto action : allActions) {
         _ui->encryptionMessage->removeAction(action);
     }
     _ui->encryptionMessage->setText({});
@@ -1745,7 +1749,7 @@ void AccountSettings::setupE2eEncryptionMessage()
 {
     _ui->encryptionMessage->setMessageType(KMessageWidget::Information);
     _ui->encryptionMessage->setText(tr("This account supports end-to-end encryption, but it needs to be set up first."));
-    _ui->encryptionMessage->setIcon(Theme::createColorAwareIcon(QStringLiteral(":/client/theme/black/state-info.svg")));
+    _ui->encryptionMessage->setIcon(Theme::createColorAwareIcon(QStringLiteral(":/client/theme/info.svg")));
     _ui->encryptionMessage->hide();
 
     auto *const actionSetupE2e = addActionToEncryptionMessage(tr("Set up encryption"), e2EeUiActionSetupEncryptionId);

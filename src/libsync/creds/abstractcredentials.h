@@ -9,6 +9,7 @@
 #define MIRALL_CREDS_ABSTRACT_CREDENTIALS_H
 
 #include <QObject>
+#include <QNetworkRequest>
 
 #include <csync.h>
 #include "owncloudlib.h"
@@ -25,6 +26,9 @@ class OWNCLOUDSYNC_EXPORT AbstractCredentials : public QObject
     Q_OBJECT
 
 public:
+    /// Don't add credentials if this is set on a QNetworkRequest
+    static constexpr QNetworkRequest::Attribute DontAddCredentialsAttribute = QNetworkRequest::User;
+
     AbstractCredentials();
     // No need for virtual destructor - QObject already has one.
 
@@ -47,11 +51,11 @@ public:
     /** Whether fetchFromKeychain() was called before. */
     [[nodiscard]] bool wasFetched() const { return _wasFetched; }
 
-    /** Trigger (async) fetching of credential information
+    /** Trigger (async) fetching of credential information using the appplication name
      *
      * Should set _wasFetched = true, and later emit fetched() when done.
      */
-    virtual void fetchFromKeychain() = 0;
+    virtual void fetchFromKeychain(const QString &appName = {}) = 0;
 
     /** Ask credentials from the user (typically async)
      *
@@ -81,7 +85,7 @@ public:
      */
     virtual void forgetSensitiveData() = 0;
 
-    static QString keychainKey(const QString &url, const QString &user, const QString &accountId);
+    static QString keychainKey(const QString &url, const QString &user, const QString &accountId, const QString &appName = {});
 
     /** If the job need to be restarted or queue, this does it and returns true. */
     virtual bool retryIfNeeded(AbstractNetworkJob *) { return false; }

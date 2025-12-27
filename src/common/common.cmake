@@ -19,6 +19,9 @@ set(common_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/pinstate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/plugin.cpp
     ${CMAKE_CURRENT_LIST_DIR}/syncfilestatus.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/syncitemenums.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/remoteinfo.h
+    ${CMAKE_CURRENT_LIST_DIR}/folderquota.h
 )
 
 if(WIN32)
@@ -28,6 +31,8 @@ if(WIN32)
 elseif(APPLE)
     list(APPEND common_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/utility_mac.mm
+        ${CMAKE_CURRENT_LIST_DIR}/utility_mac_sandbox.h
+        ${CMAKE_CURRENT_LIST_DIR}/utility_mac_sandbox.mm
     )
 elseif(UNIX AND NOT APPLE)
     list(APPEND common_SOURCES

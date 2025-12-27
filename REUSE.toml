@@ -24,9 +24,26 @@ SPDX-FileCopyrightText = "2022 Nextcloud GmbH and Nextcloud translators"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
 [[annotations]]
-path = ["shell_integration/windows/NCOverlays/resource.h", "shell_integration/windows/NCOverlays/NCOverlays.def", "shell_integration/icons/SVG/Error.svg", "shell_integration/icons/SVG/Error_Shared.svg", "shell_integration/icons/SVG/OK.svg", "shell_integration/icons/SVG/OK_Shared.svg", "shell_integration/icons/SVG/Sync.svg", "shell_integration/icons/SVG/Sync_Shared.svg", "shell_integration/icons/SVG/Warning.svg", "shell_integration/icons/SVG/Warning_Shared.svg", "shell_integration/icons/Sidebar/sidebar_icon_*_18.png", "shell_integration/icons/icns/*.icns", "shell_integration/icons/*x*/oC_*.png"]
+path = ["shell_integration/windows/NCOverlays/resource.h", "shell_integration/windows/NCOverlays/NCOverlays.def", "shell_integration/icons/SVG/*.svg", "shell_integration/icons/Sidebar/sidebar_icon_*_18.png", "shell_integration/icons/icns/*.icns", "shell_integration/icons/*x*/oC_*.png"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2014 ownCloud GmbH"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = [
+    "admin/osx/container-migration.plist.cmake",
+    "admin/osx/TransifexStringCatalogSanitizer/Package.swift",
+    "admin/osx/TransifexStringCatalogSanitizer/Package.resolved",
+    "admin/osx/TransifexStringCatalogSanitizer/README.md",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 Nextcloud GmbH and Nextcloud contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = ["admin/osx/mac-crafter/Package.resolved", "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Nextcloud GmbH and Nextcloud contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
 [[annotations]]
@@ -36,7 +53,21 @@ SPDX-FileCopyrightText = "2014 ownCloud GmbH, 2022 Nextcloud GmbH and Nextcloud 
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
 [[annotations]]
-path = ["shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.pbxproj", "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.xcworkspace/contents.xcworkspacedata", "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist", "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/xcshareddata/xcschemes/FinderSyncExt.xcscheme"]
+path = [
+    "shell_integration/MacOSX/NextcloudIntegration/.gitignore",
+    "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.pbxproj", 
+    "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.xcworkspace/contents.xcworkspacedata", 
+    "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist", 
+    "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/xcshareddata/xcschemes/FinderSyncExt.xcscheme",
+    "shell_integration/MacOSX/NextcloudIntegration/NextcloudIntegration.xcodeproj/xcshareddata/xcschemes/NextcloudDev.xcscheme",
+    "shell_integration/MacOSX/NextcloudIntegration/README.md"
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025 Nextcloud GmbH and Nextcloud contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = ["shell_integration/MacOSX/NextcloudIntegration/FileProviderExt/Localizable.xcstrings", "shell_integration/MacOSX/NextcloudIntegration/FileProviderUIExt/Localizable.xcstrings", "shell_integration/MacOSX/NextcloudIntegration/FileProviderExt/Assets.xcassets/*", "shell_integration/MacOSX/NextcloudIntegration/FileProviderExt/Assets.xcassets/FileProviderDomainSymbol.symbolset/*", "shell_integration/MacOSX/NextcloudIntegration/FileProviderUIExt/Assets.xcassets/*", "shell_integration/MacOSX/NextcloudIntegration/FileProviderUIExt/Assets.xcassets/FileProviderDomainSymbol.symbolset/*"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2015 ownCloud GmbH, 2022 Nextcloud GmbH and Nextcloud contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
@@ -84,15 +115,9 @@ SPDX-FileCopyrightText = "2017 ownCloud GmbH, 2018 Nextcloud GmbH and Nextcloud 
 SPDX-License-Identifier = "CC-BY-3.0"
 
 [[annotations]]
-path = [".tx/nextcloud.client-desktop/*_translation", "theme/*/state-error.svg", "theme/*/state-info.svg", "theme/*/state-offline.svg", "theme/*/state-ok.svg", "theme/*/state-pause.svg", "theme/*/state-sync.svg", "theme/*/state-warning.svg"]
+path = [".tx/nextcloud.client-desktop/*_translation", "theme/*/state-error.svg", "theme/*/state-info.svg", "theme/*/state-offline.svg", "theme/*/state-ok.svg", "theme/*/state-pause.svg", "theme/*/state-sync.svg", "theme/*/state-warning.svg", "theme/colored/error.svg", "theme/colored/info.svg", "theme/colored/offline.svg", "theme/colored/ok.svg", "theme/colored/pause.svg", "theme/colored/sync.svg", "theme/colored/warning.svg"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2018 Nextcloud GmbH and Nextcloud contributors"
-SPDX-License-Identifier = "GPL-2.0-or-later"
-
-[[annotations]]
-path = ["theme/colored/user-status-away.svg", "theme/colored/user-status-dnd.svg", "theme/colored/user-status-invisible.svg", "theme/colored/user-status-online.svg"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2021 Nextcloud GmbH and Nextcloud contributors"
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
 [[annotations]]
@@ -102,7 +127,7 @@ SPDX-FileCopyrightText = "2016 Nextcloud GmbH"
 SPDX-License-Identifier = "LicenseRef-NextcloudTrademarks"
 
 [[annotations]]
-path = ["theme/account.svg","theme/add.svg","theme/change.svg","theme/chevron-double-up.svg","theme/close.svg","theme/confirm.svg","theme/copy.svg","theme/delete.svg","theme/external.svg","theme/files.svg","theme/lock-broken.svg","theme/lock-http.svg","theme/lock-https.svg","theme/lock.svg","theme/magnifying-glass.svg","theme/more.svg","theme/network.svg","theme/public.svg","theme/reply.svg","theme/send.svg","theme/settings.svg","theme/share.svg","theme/sync-arrow.svg", "theme/black/account-group.svg","theme/black/clear.svg","theme/black/expand-less-black.svg","theme/black/folder-group.svg","theme/black/search.svg", "theme/colored/add-bordered.svg", "theme/colored/change-bordered.svg", "theme/colored/delete-bordered.svg", "theme/colored/delete.svg", "theme/*/activity.svg", "theme/*/add.svg","theme/*/bell.svg","theme/*/calendar.svg","theme/*/caret-down.svg","theme/*/change.svg","theme/*/close.svg","theme/*/comment.svg","theme/*/confirm.svg","theme/*/control-next.svg","theme/*/control-prev.svg","theme/*/edit.svg","theme/*/email.svg","theme/*/external.png","theme/*/external.svg","theme/*/external@2x.png","theme/*/folder.png","theme/*/folder.svg","theme/*/folder@2x.png","theme/*/more-apps.svg","theme/*/nc-assistant-app.svg","theme/*/settings.svg","theme/*/user.svg","theme/*/wizard-files.png","theme/*/wizard-files.svg","theme/*/wizard-files@2x.png","theme/*/wizard-groupware.png","theme/*/wizard-groupware.svg","theme/*/wizard-groupware@2x.png", "theme/cfapishellext_custom_states/0-locked.svg","theme/cfapishellext_custom_states/1-shared.svg","theme/cfapishellext_custom_states/1024-0-locked.png","theme/cfapishellext_custom_states/1024-1-shared.png","theme/cfapishellext_custom_states/128-0-locked.png","theme/cfapishellext_custom_states/128-1-shared.png","theme/cfapishellext_custom_states/24-0-locked.png","theme/cfapishellext_custom_states/24-1-shared.png","theme/cfapishellext_custom_states/256-0-locked.png","theme/cfapishellext_custom_states/256-1-shared.png","theme/cfapishellext_custom_states/32-0-locked.png","theme/cfapishellext_custom_states/32-1-shared.png","theme/cfapishellext_custom_states/40-0-locked.png","theme/cfapishellext_custom_states/40-1-shared.png","theme/cfapishellext_custom_states/48-0-locked.png","theme/cfapishellext_custom_states/48-1-shared.png","theme/cfapishellext_custom_states/512-0-locked.png","theme/cfapishellext_custom_states/512-1-shared.png","theme/cfapishellext_custom_states/64-0-locked.png","theme/cfapishellext_custom_states/64-1-shared.png"]
+path = ["theme/white/error.svg", "theme/black/error.svg","theme/white/warning.svg", "theme/black/warning.svg", "theme/white/info.svg", "theme/black/info.svg", "theme/info.svg", "theme/white/nextcloud/*.svg", "theme/black/nextcloud/*.svg", "theme/colored/nextcloud/*.svg", "theme/black/label.svg", "theme/white/label.svg", "theme/colored/user-status-*.svg", "theme/account.svg","theme/add.svg","theme/change.svg","theme/chevron-double-up.svg","theme/close.svg","theme/confirm.svg","theme/copy.svg","theme/delete.svg","theme/external.svg","theme/files.svg","theme/lock-broken.svg","theme/lock-http.svg","theme/lock-https.svg","theme/lock.svg","theme/magnifying-glass.svg","theme/more.svg","theme/network.svg","theme/public.svg","theme/reply.svg","theme/send.svg","theme/settings.svg","theme/share.svg","theme/sync-arrow.svg", "theme/black/account-group.svg","theme/black/clear.svg","theme/black/expand-less-black.svg","theme/black/folder-group.svg","theme/black/search.svg", "theme/colored/add-bordered.svg", "theme/colored/change-bordered.svg", "theme/colored/delete-bordered.svg", "theme/colored/delete.svg", "theme/*/activity.svg", "theme/*/add.svg","theme/*/bell.svg","theme/*/calendar.svg","theme/*/caret-down.svg","theme/*/change.svg","theme/*/close.svg","theme/*/comment.svg","theme/*/confirm.svg","theme/*/control-next.svg","theme/*/control-prev.svg","theme/*/edit.svg","theme/*/email.svg","theme/*/external.png","theme/*/external.svg","theme/*/external@2x.png","theme/*/folder.png","theme/*/folder.svg","theme/*/folder@2x.png","theme/*/more-apps.svg","theme/*/nc-assistant-app.svg","theme/*/settings.svg","theme/*/user.svg","theme/*/wizard-files.png","theme/*/wizard-files.svg","theme/*/wizard-files@2x.png","theme/*/wizard-groupware.png","theme/*/wizard-groupware.svg","theme/*/wizard-groupware@2x.png", "theme/cfapishellext_custom_states/0-locked.svg","theme/cfapishellext_custom_states/1-shared.svg","theme/cfapishellext_custom_states/1024-0-locked.png","theme/cfapishellext_custom_states/1024-1-shared.png","theme/cfapishellext_custom_states/128-0-locked.png","theme/cfapishellext_custom_states/128-1-shared.png","theme/cfapishellext_custom_states/24-0-locked.png","theme/cfapishellext_custom_states/24-1-shared.png","theme/cfapishellext_custom_states/256-0-locked.png","theme/cfapishellext_custom_states/256-1-shared.png","theme/cfapishellext_custom_states/32-0-locked.png","theme/cfapishellext_custom_states/32-1-shared.png","theme/cfapishellext_custom_states/40-0-locked.png","theme/cfapishellext_custom_states/40-1-shared.png","theme/cfapishellext_custom_states/48-0-locked.png","theme/cfapishellext_custom_states/48-1-shared.png","theme/cfapishellext_custom_states/512-0-locked.png","theme/cfapishellext_custom_states/512-1-shared.png","theme/cfapishellext_custom_states/64-0-locked.png","theme/cfapishellext_custom_states/64-1-shared.png"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2018-2025 Google LLC"
 SPDX-License-Identifier = "Apache-2.0"

@@ -14,6 +14,8 @@
 #include <QLoggingCategory>
 #include "csync/vio/csync_vio_local.h"
 
+using namespace Qt::StringLiterals;
+
 namespace OCC {
 
 Q_LOGGING_CATEGORY(lcFileItem, "nextcloud.sync.fileitem", QtInfoMsg)
@@ -120,6 +122,8 @@ SyncJournalFileRecord SyncFileItem::toSyncJournalFileRecordWithInode(const QStri
     rec._lockstate._lockToken = _lockToken;
     rec._isLivePhoto = _isLivePhoto;
     rec._livePhotoFile = _livePhotoFile;
+    rec._folderQuota.bytesUsed = _folderQuota.bytesUsed;
+    rec._folderQuota.bytesAvailable = _folderQuota.bytesAvailable;
 
     // Update the inode if possible
     rec._inode = _inode;
@@ -163,6 +167,8 @@ SyncFileItemPtr SyncFileItem::fromSyncJournalFileRecord(const SyncJournalFileRec
     item->_lastShareStateFetchedTimestamp = rec._lastShareStateFetchedTimestamp;
     item->_isLivePhoto = rec._isLivePhoto;
     item->_livePhotoFile = rec._livePhotoFile;
+    item->_folderQuota.bytesUsed = rec._folderQuota.bytesUsed;
+    item->_folderQuota.bytesAvailable = rec._folderQuota.bytesAvailable;
     return item;
 }
 
@@ -189,37 +195,39 @@ SyncFileItemPtr SyncFileItem::fromProperties(const QString &filePath, const QMap
     item->_isShared = item->_remotePerm.hasPermission(RemotePermissions::IsShared);
     item->_lastShareStateFetchedTimestamp = QDateTime::currentMSecsSinceEpoch();
 
-    item->_e2eEncryptionStatus = (properties.value(QStringLiteral("is-encrypted")) == QStringLiteral("1") ? SyncFileItem::EncryptionStatus::Encrypted : SyncFileItem::EncryptionStatus::NotEncrypted);
+    item->_e2eEncryptionStatus = (properties.value("is-encrypted"_L1) == "1"_L1 ? SyncFileItem::EncryptionStatus::EncryptedMigratedV2_0 : SyncFileItem::EncryptionStatus::NotEncrypted);
     if (item->isEncrypted()) {
         item->_e2eEncryptionServerCapability = item->_e2eEncryptionStatus;
     }
     item->_locked =
-        properties.value(QStringLiteral("lock")) == QStringLiteral("1") ? SyncFileItem::LockStatus::LockedItem : SyncFileItem::LockStatus::UnlockedItem;
-    item->_lockOwnerDisplayName = properties.value(QStringLiteral("lock-owner-displayname"));
-    item->_lockOwnerId = properties.value(QStringLiteral("lock-owner"));
-    item->_lockEditorApp = properties.value(QStringLiteral("lock-owner-editor"));
+        properties.value("lock"_L1) == "1"_L1 ? SyncFileItem::LockStatus::LockedItem : SyncFileItem::LockStatus::UnlockedItem;
+    item->_lockOwnerDisplayName = properties.value("lock-owner-displayname"_L1);
+    item->_lockOwnerId = properties.value("lock-owner"_L1);
+    item->_lockEditorApp = properties.value("lock-owner-editor"_L1);
 
     {
         auto ok = false;
-        const auto intConvertedValue = properties.value(QStringLiteral("lock-owner-type")).toULongLong(&ok);
+        const auto intConvertedValue = properties.value("lock-owner-type"_L1).toULongLong(&ok);
         item->_lockOwnerType = ok ? static_cast<SyncFileItem::LockOwnerType>(intConvertedValue) : SyncFileItem::LockOwnerType::UserLock;
     }
 
     {
         auto ok = false;
-        const auto intConvertedValue = properties.value(QStringLiteral("lock-time")).toULongLong(&ok);
+        const auto intConvertedValue = properties.value("lock-time"_L1).toULongLong(&ok);
         item->_lockTime = ok ? intConvertedValue : 0;
     }
 
     {
         auto ok = false;
-        const auto intConvertedValue = properties.value(QStringLiteral("lock-timeout")).toULongLong(&ok);
+        const auto intConvertedValue = properties.value("lock-timeout"_L1).toULongLong(&ok);
         item->_lockTimeout = ok ? intConvertedValue : 0;
     }
 
     item->_lockToken = properties.value(QStringLiteral("lock-token"));
 
-    const auto date = QDateTime::fromString(properties.value(QStringLiteral("getlastmodified")), Qt::RFC2822Date);
+    auto getlastmodifiedValue = properties.value(QStringLiteral("getlastmodified"));
+    getlastmodifiedValue.replace("GMT", "+0000");
+    const auto date = QDateTime::fromString(getlastmodifiedValue, Qt::RFC2822Date);
     Q_ASSERT(date.isValid());
     if (date.toSecsSinceEpoch() > 0) {
         item->_modtime = date.toSecsSinceEpoch();
@@ -236,6 +244,11 @@ SyncFileItemPtr SyncFileItem::fromProperties(const QString &filePath, const QMap
     if (properties.contains(QStringLiteral("metadata-files-live-photo"))) {
         item->_isLivePhoto = true;
         item->_livePhotoFile = properties.value(QStringLiteral("metadata-files-live-photo"));
+    }
+
+    if (isDirectory && properties.contains(FolderQuota::usedBytesC) && properties.contains(FolderQuota::availableBytesC)) {
+        item->_folderQuota.bytesUsed = properties.value(FolderQuota::usedBytesC).toLongLong();
+        item->_folderQuota.bytesAvailable = properties.value(FolderQuota::availableBytesC).toLongLong();
     }
 
     // direction and instruction are decided later

@@ -30,6 +30,7 @@ ItemDelegate {
     Accessible.onPressAction: root.clicked()
 
     ToolTip {
+        popupType: Qt.platform.os === "windows" ? Popup.Item : Popup.Native
         visible: root.hovered && !activityContent.childHovered && model.displayLocation !== ""
         text: qsTr("In %1").arg(model.displayLocation)
     }
@@ -40,6 +41,8 @@ ItemDelegate {
 
         ActivityItemContent {
             id: activityContent
+
+            adaptiveTextColor: root.activeFocus ? palette.highlightedText : palette.text
 
             Layout.fillWidth: true
             Layout.minimumHeight: Style.minActivityHeight

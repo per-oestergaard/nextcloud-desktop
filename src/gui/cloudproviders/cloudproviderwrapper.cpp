@@ -21,6 +21,8 @@
 
 using namespace OCC;
 
+Q_LOGGING_CATEGORY(lcNextcloudCloudProviderIntegration, "nextcloud.cloudprovider.integration", QtInfoMsg)
+
 GSimpleActionGroup *actionGroup = nullptr;
 
 int CloudProviderWrapper::preferredTextWidth = 0;
@@ -53,6 +55,11 @@ CloudProviderWrapper::CloudProviderWrapper(QObject *parent, Folder *folder, int 
     updatePauseStatus();
     g_clear_object (&model);
     g_clear_object (&action_group);
+}
+
+void mainMenuWasDeleted(gpointer data, GObject *where_the_object_was)
+{
+    qCDebug(lcNextcloudCloudProviderIntegration) << "I was deleted" << data << where_the_object_was;
 }
 
 CloudProviderWrapper::~CloudProviderWrapper()
@@ -95,7 +102,7 @@ void CloudProviderWrapper::slotUpdateProgress(const QString &folder, const Progr
 
     // Build recently changed files list
     if (!progress._lastCompletedItem.isEmpty() && shouldShowInRecentsMenu(progress._lastCompletedItem)) {
-        QFontMetrics fm = QApplication::fontMetrics();
+        const auto fm = QFontMetricsF{QApplication::font()};
         QString kindStr = Progress::asResultString(progress._lastCompletedItem);
         QString elidedKindStr = fm.elidedText(kindStr, Qt::ElideRight, preferredTextWidth);
         QString timeStr = QTime::currentTime().toString("hh:mm");
@@ -168,6 +175,10 @@ void CloudProviderWrapper::slotUpdateProgress(const QString &folder, const Progr
 
 void CloudProviderWrapper::updateStatusText(QString statusText)
 {
+    if (!_folder) {
+        return;
+    }
+
     QString status = QStringLiteral("%1 - %2").arg(_folder->accountState()->stateString(_folder->accountState()->state()), statusText);
     cloud_providers_account_exporter_set_status_details(_cloudProviderAccount, status.toUtf8().data());
 }
@@ -207,7 +218,7 @@ void CloudProviderWrapper::slotSyncFinished(const SyncResult &result)
 
 static GMenuItem* addMenuItem(const QString text, const gchar *action)
 {
-    QFontMetrics fm = QApplication::fontMetrics();
+    const auto fm = QFontMetricsF{QApplication::font()};
     CloudProviderWrapper::preferredTextWidth = MAX (CloudProviderWrapper::preferredTextWidth, (fm.boundingRect (text)).width ());
     return menu_item_new (text, action);
 }
@@ -216,12 +227,20 @@ GMenuModel* CloudProviderWrapper::getMenuModel() {
 
     GMenu* section = nullptr;
     GMenuItem* item = nullptr;
-    QString item_label;
 
     _mainMenu = g_menu_new();
+    g_object_ref(_mainMenu);
+    g_object_weak_ref(reinterpret_cast<GObject*>(_mainMenu), mainMenuWasDeleted, this);
 
     section = g_menu_new();
-    item = addMenuItem(tr("Open website"), "cloudprovider.openwebsite");
+    item = addMenuItem(tr("Open %1 Desktop", "Open Nextcloud main window. Placeholer will be the application name. Please keep it.").arg(APPLICATION_NAME), "cloudprovider.openmaindialog");
+    g_menu_append_item(section, item);
+    g_clear_object (&item);
+    g_menu_append_section(_mainMenu, nullptr, G_MENU_MODEL(section));
+    g_clear_object (&section);
+
+    section = g_menu_new();
+    item = addMenuItem(tr("Open in browser"), "cloudprovider.openwebsite");
     g_menu_append_item(section, item);
     g_clear_object (&item);
     g_menu_append_section(_mainMenu, nullptr, G_MENU_MODEL(section));
@@ -281,6 +300,10 @@ activate_action_open (GSimpleAction *action, GVariant *parameter, gpointer user_
         gui->slotShowSettings();
     }
 
+    if(g_str_equal(name, "openmaindialog")) {
+        gui->slotOpenMainDialog();
+    }
+
     if(g_str_equal(name, "openwebsite")) {
         QDesktopServices::openUrl(self->folder()->accountState()->account()->url());
     }
@@ -330,6 +353,7 @@ activate_action_pause (GSimpleAction *action,
 }
 
 static GActionEntry actions[] = {
+    { "openmaindialog",  activate_action_open, nullptr, nullptr, nullptr, {0,0,0}},
     { "openwebsite",  activate_action_open, nullptr, nullptr, nullptr, {0,0,0}},
     { "quit",  activate_action_open, nullptr, nullptr, nullptr, {0,0,0}},
     { "logout",  activate_action_open, nullptr, nullptr, nullptr, {0,0,0}},

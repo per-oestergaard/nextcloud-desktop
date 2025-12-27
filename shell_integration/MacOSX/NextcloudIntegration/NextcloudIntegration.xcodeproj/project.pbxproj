@@ -3,24 +3,18 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
 		530429982DD44235004BB598 /* FileProviderExtension+CustomActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530429972DD44226004BB598 /* FileProviderExtension+CustomActions.swift */; };
-		5307A6E62965C6FA001E0C6A /* NextcloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5307A6E52965C6FA001E0C6A /* NextcloudKit */; };
-		5307A6E82965DAD8001E0C6A /* NextcloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5307A6E72965DAD8001E0C6A /* NextcloudKit */; };
 		531522822B8E01C6002E31BE /* ShareTableItemView.xib in Resources */ = {isa = PBXBuildFile; fileRef = 531522812B8E01C6002E31BE /* ShareTableItemView.xib */; };
-		531EDE572D897B4F00FD91F9 /* Eviction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531EDE562D897B4F00FD91F9 /* Eviction.swift */; };
 		5350E4E92B0C534A00F276CB /* ClientCommunicationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5350E4E82B0C534A00F276CB /* ClientCommunicationService.swift */; };
 		5352B36C29DC44B50011CE03 /* FileProviderExtension+Thumbnailing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5352B36B29DC44B50011CE03 /* FileProviderExtension+Thumbnailing.swift */; };
-		5358F2B92BAA0F5300E3C729 /* NextcloudCapabilitiesKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5358F2B82BAA0F5300E3C729 /* NextcloudCapabilitiesKit */; };
-		535AE30E29C0A2CC0042A9BA /* Logger+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535AE30D29C0A2CC0042A9BA /* Logger+Extensions.swift */; };
 		53651E442BBC0CA300ECAC29 /* SuggestionsTextFieldKit in Frameworks */ = {isa = PBXBuildFile; productRef = 53651E432BBC0CA300ECAC29 /* SuggestionsTextFieldKit */; };
 		53651E462BBC0D9500ECAC29 /* ShareeSuggestionsDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53651E452BBC0D9500ECAC29 /* ShareeSuggestionsDataSource.swift */; };
 		536EFBF7295CF58100F4CB13 /* FileProviderSocketLineProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536EFBF6295CF58100F4CB13 /* FileProviderSocketLineProcessor.swift */; };
 		5374FD442B95EE1400C78D54 /* ShareController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5374FD432B95EE1400C78D54 /* ShareController.swift */; };
-		5376307D2B85E2ED0026BFAB /* Logger+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5376307C2B85E2ED0026BFAB /* Logger+Extensions.swift */; };
 		537630912B85F4980026BFAB /* ShareViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 537630902B85F4980026BFAB /* ShareViewController.xib */; };
 		537630932B85F4B00026BFAB /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537630922B85F4B00026BFAB /* ShareViewController.swift */; };
 		537630952B860D560026BFAB /* FPUIExtensionServiceSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537630942B860D560026BFAB /* FPUIExtensionServiceSource.swift */; };
@@ -28,7 +22,6 @@
 		537630982B8612F00026BFAB /* FPUIExtensionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537630962B860D920026BFAB /* FPUIExtensionService.swift */; };
 		537BD67A2C58D67800446ED0 /* LockViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537BD6792C58D67800446ED0 /* LockViewController.swift */; };
 		537BD67C2C58D7B700446ED0 /* LockViewController.xib in Resources */ = {isa = PBXBuildFile; fileRef = 537BD67B2C58D7B700446ED0 /* LockViewController.xib */; };
-		537BD6802C58F01B00446ED0 /* FileProviderCommunication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537BD67F2C58F01B00446ED0 /* FileProviderCommunication.swift */; };
 		537BD6822C58F72E00446ED0 /* MetadataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 537BD6812C58F72E00446ED0 /* MetadataProvider.swift */; };
 		538E396A27F4765000FA63D5 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 538E396927F4765000FA63D5 /* UniformTypeIdentifiers.framework */; };
 		538E396D27F4765000FA63D5 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 538E396C27F4765000FA63D5 /* FileProviderExtension.swift */; };
@@ -45,16 +38,25 @@
 		53903D37295618A400D0B308 /* LineProcessor.h in Headers */ = {isa = PBXBuildFile; fileRef = 53903D36295618A400D0B308 /* LineProcessor.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		539158AC27BE71A900816F56 /* FinderSyncSocketLineProcessor.m in Sources */ = {isa = PBXBuildFile; fileRef = 539158AB27BE71A900816F56 /* FinderSyncSocketLineProcessor.m */; };
 		53B979812B84C81F002DA742 /* DocumentActionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B979802B84C81F002DA742 /* DocumentActionViewController.swift */; };
-		53C331B22BCD28C30093D38B /* NextcloudFileProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 53C331B12BCD28C30093D38B /* NextcloudFileProviderKit */; };
-		53C331B62BCD3AFF0093D38B /* NextcloudFileProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = 53C331B52BCD3AFF0093D38B /* NextcloudFileProviderKit */; };
-		53D666612B70C9A70042C03D /* FileProviderConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D666602B70C9A70042C03D /* FileProviderConfig.swift */; };
+		53D666612B70C9A70042C03D /* FileProviderDomainDefaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D666602B70C9A70042C03D /* FileProviderDomainDefaults.swift */; };
 		53ED473029C9CE0B00795DB1 /* FileProviderExtension+ClientInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53ED472F29C9CE0B00795DB1 /* FileProviderExtension+ClientInterface.swift */; };
 		53FE14502B8E0658006C4193 /* ShareTableViewDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE144F2B8E0658006C4193 /* ShareTableViewDataSource.swift */; };
-		53FE14542B8E1219006C4193 /* NextcloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = 53FE14532B8E1219006C4193 /* NextcloudKit */; };
 		53FE14592B8E3F6C006C4193 /* ShareTableItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE14582B8E3F6C006C4193 /* ShareTableItemView.swift */; };
 		53FE145B2B8F1305006C4193 /* NKShare+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE145A2B8F1305006C4193 /* NKShare+Extensions.swift */; };
 		53FE14652B8F6700006C4193 /* ShareViewDataSourceUIDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE14642B8F6700006C4193 /* ShareViewDataSourceUIDelegate.swift */; };
 		53FE14672B8F78B6006C4193 /* ShareOptionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FE14662B8F78B6006C4193 /* ShareOptionsView.swift */; };
+		AA02B2AB2E7048C800C72B34 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA02B2AA2E7048C600C72B34 /* Keychain.swift */; };
+		AA560CE72EDDB84000CD423E /* ServiceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA560CE62EDDB82900CD423E /* ServiceResolver.swift */; };
+		AA5FB9E62EF54F410018BDAE /* NextcloudFileProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA5FB9E52EF54F410018BDAE /* NextcloudFileProviderKit */; };
+		AA5FB9E82EF54FEA0018BDAE /* NextcloudFileProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = AA5FB9E72EF54FEA0018BDAE /* NextcloudFileProviderKit */; };
+		AA7F17E12E7017230000E928 /* Authentication.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA7F17E02E7017230000E928 /* Authentication.storyboard */; };
+		AA7F17E32E70173E0000E928 /* AuthenticationViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7F17E22E70173E0000E928 /* AuthenticationViewController.swift */; };
+		AA7F17E72E7038370000E928 /* NSError+FileProviderErrorCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7F17E62E7038340000E928 /* NSError+FileProviderErrorCode.swift */; };
+		AA9987862E72B6EF00B2C428 /* NextcloudKit+clearAccountErrorState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA9987852E72B6DB00B2C428 /* NextcloudKit+clearAccountErrorState.swift */; };
+		AAA69D932E3BB09900BBD44D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AAA69D922E3BB09900BBD44D /* Localizable.xcstrings */; };
+		AAC00D2A2E37B29D006010FE /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AAC00D292E37B29D006010FE /* Localizable.xcstrings */; };
+		AAF19A682E8D5B4E005FE5B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAF19A672E8D5B4E005FE5B0 /* Assets.xcassets */; };
+		AAF19A7A2E8D5B63005FE5B0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AAF19A792E8D5B63005FE5B0 /* Assets.xcassets */; };
 		C2B573BA1B1CD91E00303B36 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = C2B573B91B1CD91E00303B36 /* main.m */; };
 		C2B573D21B1CD94B00303B36 /* main.m in Resources */ = {isa = PBXBuildFile; fileRef = C2B573B91B1CD91E00303B36 /* main.m */; };
 		C2B573DE1B1CD9CE00303B36 /* FinderSync.m in Sources */ = {isa = PBXBuildFile; fileRef = C2B573DD1B1CD9CE00303B36 /* FinderSync.m */; };
@@ -94,6 +96,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 53903D0B2956164F00D0B308;
 			remoteInfo = NCDesktopClientSocketKit;
+		};
+		AA3CA0342EC35A3B00AFCA0C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C2B573951B1CD88000303B36 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 53B9797D2B84C81F002DA742;
+			remoteInfo = FileProviderUIExt;
 		};
 		C2B573DF1B1CD9CE00303B36 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -155,29 +164,24 @@
 /* Begin PBXFileReference section */
 		530429972DD44226004BB598 /* FileProviderExtension+CustomActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileProviderExtension+CustomActions.swift"; sourceTree = "<group>"; };
 		531522812B8E01C6002E31BE /* ShareTableItemView.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = ShareTableItemView.xib; sourceTree = "<group>"; };
-		531EDE562D897B4F00FD91F9 /* Eviction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Eviction.swift; sourceTree = "<group>"; };
 		5350E4E72B0C514400F276CB /* ClientCommunicationProtocol.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ClientCommunicationProtocol.h; sourceTree = "<group>"; };
 		5350E4E82B0C534A00F276CB /* ClientCommunicationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientCommunicationService.swift; sourceTree = "<group>"; };
 		5350E4EA2B0C9CE100F276CB /* FileProviderExt-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "FileProviderExt-Bridging-Header.h"; sourceTree = "<group>"; };
 		5352B36B29DC44B50011CE03 /* FileProviderExtension+Thumbnailing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileProviderExtension+Thumbnailing.swift"; sourceTree = "<group>"; };
-		535AE30D29C0A2CC0042A9BA /* Logger+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Logger+Extensions.swift"; sourceTree = "<group>"; };
 		53651E452BBC0D9500ECAC29 /* ShareeSuggestionsDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareeSuggestionsDataSource.swift; sourceTree = "<group>"; };
 		536EFBF6295CF58100F4CB13 /* FileProviderSocketLineProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderSocketLineProcessor.swift; sourceTree = "<group>"; };
 		5374FD432B95EE1400C78D54 /* ShareController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareController.swift; sourceTree = "<group>"; };
-		5376307C2B85E2ED0026BFAB /* Logger+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Logger+Extensions.swift"; sourceTree = "<group>"; };
 		537630902B85F4980026BFAB /* ShareViewController.xib */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.xib; path = ShareViewController.xib; sourceTree = "<group>"; };
 		537630922B85F4B00026BFAB /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		537630942B860D560026BFAB /* FPUIExtensionServiceSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FPUIExtensionServiceSource.swift; sourceTree = "<group>"; };
 		537630962B860D920026BFAB /* FPUIExtensionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FPUIExtensionService.swift; sourceTree = "<group>"; };
 		537BD6792C58D67800446ED0 /* LockViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockViewController.swift; sourceTree = "<group>"; };
 		537BD67B2C58D7B700446ED0 /* LockViewController.xib */ = {isa = PBXFileReference; lastKnownFileType = file.xib; path = LockViewController.xib; sourceTree = "<group>"; };
-		537BD67F2C58F01B00446ED0 /* FileProviderCommunication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderCommunication.swift; sourceTree = "<group>"; };
 		537BD6812C58F72E00446ED0 /* MetadataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataProvider.swift; sourceTree = "<group>"; };
 		538E396727F4765000FA63D5 /* FileProviderExt.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FileProviderExt.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		538E396927F4765000FA63D5 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
 		538E396C27F4765000FA63D5 /* FileProviderExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
 		538E397227F4765000FA63D5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		538E397327F4765000FA63D5 /* FileProviderExt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FileProviderExt.entitlements; sourceTree = "<group>"; };
 		53903D0C2956164F00D0B308 /* NCDesktopClientSocketKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NCDesktopClientSocketKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		53903D0E2956164F00D0B308 /* NCDesktopClientSocketKit.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NCDesktopClientSocketKit.h; sourceTree = "<group>"; };
 		53903D36295618A400D0B308 /* LineProcessor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LineProcessor.h; sourceTree = "<group>"; };
@@ -189,20 +193,32 @@
 		53B9797E2B84C81F002DA742 /* FileProviderUIExt.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FileProviderUIExt.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		53B979802B84C81F002DA742 /* DocumentActionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentActionViewController.swift; sourceTree = "<group>"; };
 		53B979852B84C81F002DA742 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		53D666602B70C9A70042C03D /* FileProviderConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderConfig.swift; sourceTree = "<group>"; };
+		53D666602B70C9A70042C03D /* FileProviderDomainDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileProviderDomainDefaults.swift; sourceTree = "<group>"; };
 		53ED472F29C9CE0B00795DB1 /* FileProviderExtension+ClientInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileProviderExtension+ClientInterface.swift"; sourceTree = "<group>"; };
 		53FE144F2B8E0658006C4193 /* ShareTableViewDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTableViewDataSource.swift; sourceTree = "<group>"; };
-		53FE14572B8E3A7C006C4193 /* FileProviderUIExt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FileProviderUIExt.entitlements; sourceTree = "<group>"; };
 		53FE14582B8E3F6C006C4193 /* ShareTableItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareTableItemView.swift; sourceTree = "<group>"; };
 		53FE145A2B8F1305006C4193 /* NKShare+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NKShare+Extensions.swift"; sourceTree = "<group>"; };
 		53FE14642B8F6700006C4193 /* ShareViewDataSourceUIDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewDataSourceUIDelegate.swift; sourceTree = "<group>"; };
 		53FE14662B8F78B6006C4193 /* ShareOptionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareOptionsView.swift; sourceTree = "<group>"; };
+		86E2C8FB2EF1D4ED00E38A5B /* src */ = {isa = PBXFileReference; lastKnownFileType = folder; name = src; path = ../../../src; sourceTree = "<group>"; };
+		AA02B2AA2E7048C600C72B34 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		AA0A6B1D2E8EA94F007F4A7A /* Craft.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Craft.sh; sourceTree = "<group>"; };
+		AA27A4E32E93C0D700665051 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		AA560CE62EDDB82900CD423E /* ServiceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceResolver.swift; sourceTree = "<group>"; };
+		AA7F17E02E7017230000E928 /* Authentication.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = Authentication.storyboard; sourceTree = "<group>"; };
+		AA7F17E22E70173E0000E928 /* AuthenticationViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationViewController.swift; sourceTree = "<group>"; };
+		AA7F17E62E7038340000E928 /* NSError+FileProviderErrorCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSError+FileProviderErrorCode.swift"; sourceTree = "<group>"; };
+		AA826BEE2E8EAA7500CE49C4 /* Build.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Build.xcconfig; sourceTree = "<group>"; };
+		AA9987852E72B6DB00B2C428 /* NextcloudKit+clearAccountErrorState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NextcloudKit+clearAccountErrorState.swift"; sourceTree = "<group>"; };
+		AAA69D922E3BB09900BBD44D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		AAC00D292E37B29D006010FE /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		AAF19A672E8D5B4E005FE5B0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AAF19A792E8D5B63005FE5B0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C2B573B11B1CD91E00303B36 /* desktopclient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = desktopclient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2B573B51B1CD91E00303B36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C2B573B91B1CD91E00303B36 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		C2B573D71B1CD9CE00303B36 /* FinderSyncExt.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FinderSyncExt.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C2B573DA1B1CD9CE00303B36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		C2B573DB1B1CD9CE00303B36 /* FinderSyncExt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = FinderSyncExt.entitlements; sourceTree = "<group>"; };
 		C2B573DC1B1CD9CE00303B36 /* FinderSync.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FinderSync.h; sourceTree = "<group>"; };
 		C2B573DD1B1CD9CE00303B36 /* FinderSync.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FinderSync.m; sourceTree = "<group>"; };
 		C2B573EB1B1DAD6400303B36 /* error.iconset */ = {isa = PBXFileReference; lastKnownFileType = folder.iconset; name = error.iconset; path = ../../icons/nopadding/error.iconset; sourceTree = SOURCE_ROOT; };
@@ -217,10 +233,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5307A6E82965DAD8001E0C6A /* NextcloudKit in Frameworks */,
 				538E396A27F4765000FA63D5 /* UniformTypeIdentifiers.framework in Frameworks */,
+				AA5FB9E62EF54F410018BDAE /* NextcloudFileProviderKit in Frameworks */,
 				53903D302956173F00D0B308 /* NCDesktopClientSocketKit.framework in Frameworks */,
-				53C331B22BCD28C30093D38B /* NextcloudFileProviderKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,10 +250,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5358F2B92BAA0F5300E3C729 /* NextcloudCapabilitiesKit in Frameworks */,
-				53C331B62BCD3AFF0093D38B /* NextcloudFileProviderKit in Frameworks */,
 				53651E442BBC0CA300ECAC29 /* SuggestionsTextFieldKit in Frameworks */,
-				53FE14542B8E1219006C4193 /* NextcloudKit in Frameworks */,
+				AA5FB9E82EF54FEA0018BDAE /* NextcloudFileProviderKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,7 +259,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5307A6E62965C6FA001E0C6A /* NextcloudKit in Frameworks */,
 				53903D212956164F00D0B308 /* NCDesktopClientSocketKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -262,14 +274,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		531EDE542D88569400FD91F9 /* Evicting */ = {
-			isa = PBXGroup;
-			children = (
-				531EDE562D897B4F00FD91F9 /* Eviction.swift */,
-			);
-			path = Evicting;
-			sourceTree = "<group>";
-		};
 		5350E4C72B0C368B00F276CB /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -284,7 +288,8 @@
 		5352E85929B7BFB4002CE85C /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
-				535AE30D29C0A2CC0042A9BA /* Logger+Extensions.swift */,
+				AA9987852E72B6DB00B2C428 /* NextcloudKit+clearAccountErrorState.swift */,
+				AA7F17E62E7038340000E928 /* NSError+FileProviderErrorCode.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -292,7 +297,6 @@
 		5376307B2B85E2E00026BFAB /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
-				5376307C2B85E2ED0026BFAB /* Logger+Extensions.swift */,
 				53FE145A2B8F1305006C4193 /* NKShare+Extensions.swift */,
 			);
 			path = Extensions;
@@ -336,15 +340,17 @@
 			children = (
 				5352E85929B7BFB4002CE85C /* Extensions */,
 				5350E4C72B0C368B00F276CB /* Services */,
-				53D666602B70C9A70042C03D /* FileProviderConfig.swift */,
+				53D666602B70C9A70042C03D /* FileProviderDomainDefaults.swift */,
 				538E396C27F4765000FA63D5 /* FileProviderExtension.swift */,
 				53ED472F29C9CE0B00795DB1 /* FileProviderExtension+ClientInterface.swift */,
 				530429972DD44226004BB598 /* FileProviderExtension+CustomActions.swift */,
 				5352B36B29DC44B50011CE03 /* FileProviderExtension+Thumbnailing.swift */,
 				536EFBF6295CF58100F4CB13 /* FileProviderSocketLineProcessor.swift */,
-				538E397327F4765000FA63D5 /* FileProviderExt.entitlements */,
+				AA02B2AA2E7048C600C72B34 /* Keychain.swift */,
 				538E397227F4765000FA63D5 /* Info.plist */,
 				5350E4EA2B0C9CE100F276CB /* FileProviderExt-Bridging-Header.h */,
+				AAA69D922E3BB09900BBD44D /* Localizable.xcstrings */,
+				AAF19A672E8D5B4E005FE5B0 /* Assets.xcassets */,
 			);
 			path = FileProviderExt;
 			sourceTree = "<group>";
@@ -363,23 +369,45 @@
 		53B9797F2B84C81F002DA742 /* FileProviderUIExt */ = {
 			isa = PBXGroup;
 			children = (
-				531EDE542D88569400FD91F9 /* Evicting */,
+				AA7F17DF2E70171A0000E928 /* Authentication */,
 				5376307B2B85E2E00026BFAB /* Extensions */,
 				537BD6782C58D0FC00446ED0 /* Locking */,
 				537BD6772C58D0C400446ED0 /* Sharing */,
 				53B979802B84C81F002DA742 /* DocumentActionViewController.swift */,
-				537BD67F2C58F01B00446ED0 /* FileProviderCommunication.swift */,
+				AA560CE62EDDB82900CD423E /* ServiceResolver.swift */,
 				537BD6812C58F72E00446ED0 /* MetadataProvider.swift */,
-				53FE14572B8E3A7C006C4193 /* FileProviderUIExt.entitlements */,
 				53B979852B84C81F002DA742 /* Info.plist */,
+				AAC00D292E37B29D006010FE /* Localizable.xcstrings */,
+				AAF19A792E8D5B63005FE5B0 /* Assets.xcassets */,
 			);
 			path = FileProviderUIExt;
+			sourceTree = "<group>";
+		};
+		AA0A6B1C2E8EA948007F4A7A /* NextcloudDev */ = {
+			isa = PBXGroup;
+			children = (
+				AA826BEE2E8EAA7500CE49C4 /* Build.xcconfig */,
+				AA0A6B1D2E8EA94F007F4A7A /* Craft.sh */,
+			);
+			path = NextcloudDev;
+			sourceTree = "<group>";
+		};
+		AA7F17DF2E70171A0000E928 /* Authentication */ = {
+			isa = PBXGroup;
+			children = (
+				AA7F17E02E7017230000E928 /* Authentication.storyboard */,
+				AA7F17E22E70173E0000E928 /* AuthenticationViewController.swift */,
+			);
+			path = Authentication;
 			sourceTree = "<group>";
 		};
 		C2B573941B1CD88000303B36 = {
 			isa = PBXGroup;
 			children = (
+				86E2C8FB2EF1D4ED00E38A5B /* src */,
+				AA27A4E32E93C0D700665051 /* README.md */,
 				C2B573B31B1CD91E00303B36 /* desktopclient */,
+				AA0A6B1C2E8EA948007F4A7A /* NextcloudDev */,
 				C2B573D81B1CD9CE00303B36 /* FinderSyncExt */,
 				538E396B27F4765000FA63D5 /* FileProviderExt */,
 				53B9797F2B84C81F002DA742 /* FileProviderUIExt */,
@@ -440,7 +468,6 @@
 				C2B573EF1B1DAD6400303B36 /* sync.iconset */,
 				C2B573F11B1DAD6400303B36 /* warning.iconset */,
 				C2B573DA1B1CD9CE00303B36 /* Info.plist */,
-				C2B573DB1B1CD9CE00303B36 /* FinderSyncExt.entitlements */,
 			);
 			name = "Supporting Files";
 			sourceTree = "<group>";
@@ -460,6 +487,25 @@
 		};
 /* End PBXHeadersBuildPhase section */
 
+/* Begin PBXLegacyTarget section */
+		AA0A62F22E8EA929007F4A7A /* NextcloudDev */ = {
+			isa = PBXLegacyTarget;
+			buildArgumentsString = "\"$(SOURCE_ROOT)/NextcloudDev/Craft.sh\"";
+			buildConfigurationList = AA0A62F52E8EA929007F4A7A /* Build configuration list for PBXLegacyTarget "NextcloudDev" */;
+			buildPhases = (
+			);
+			buildToolPath = /bin/zsh;
+			buildWorkingDirectory = "";
+			dependencies = (
+			);
+			name = NextcloudDev;
+			packageProductDependencies = (
+			);
+			passBuildSettingsInEnvironment = 1;
+			productName = NextcloudDev;
+		};
+/* End PBXLegacyTarget section */
+
 /* Begin PBXNativeTarget section */
 		538E396627F4765000FA63D5 /* FileProviderExt */ = {
 			isa = PBXNativeTarget;
@@ -477,8 +523,7 @@
 			);
 			name = FileProviderExt;
 			packageProductDependencies = (
-				5307A6E72965DAD8001E0C6A /* NextcloudKit */,
-				53C331B12BCD28C30093D38B /* NextcloudFileProviderKit */,
+				AA5FB9E52EF54F410018BDAE /* NextcloudFileProviderKit */,
 			);
 			productName = FileProviderExt;
 			productReference = 538E396727F4765000FA63D5 /* FileProviderExt.appex */;
@@ -513,14 +558,11 @@
 			buildRules = (
 			);
 			dependencies = (
-				53FE14522B8E1213006C4193 /* PBXTargetDependency */,
 			);
 			name = FileProviderUIExt;
 			packageProductDependencies = (
-				53FE14532B8E1219006C4193 /* NextcloudKit */,
-				5358F2B82BAA0F5300E3C729 /* NextcloudCapabilitiesKit */,
 				53651E432BBC0CA300ECAC29 /* SuggestionsTextFieldKit */,
-				53C331B52BCD3AFF0093D38B /* NextcloudFileProviderKit */,
+				AA5FB9E72EF54FEA0018BDAE /* NextcloudFileProviderKit */,
 			);
 			productName = FileProviderUIExt;
 			productReference = 53B9797E2B84C81F002DA742 /* FileProviderUIExt.appex */;
@@ -539,13 +581,13 @@
 			buildRules = (
 			);
 			dependencies = (
+				AA3CA0352EC35A3B00AFCA0C /* PBXTargetDependency */,
 				C2B573E01B1CD9CE00303B36 /* PBXTargetDependency */,
 				538E397527F4765000FA63D5 /* PBXTargetDependency */,
 				53903D202956164F00D0B308 /* PBXTargetDependency */,
 			);
 			name = desktopclient;
 			packageProductDependencies = (
-				5307A6E52965C6FA001E0C6A /* NextcloudKit */,
 			);
 			productName = desktopclient;
 			productReference = C2B573B11B1CD91E00303B36 /* desktopclient.app */;
@@ -586,20 +628,18 @@
 					};
 					53903D0B2956164F00D0B308 = {
 						CreatedOnToolsVersion = 14.2;
-						ProvisioningStyle = Manual;
 					};
 					53B9797D2B84C81F002DA742 = {
 						CreatedOnToolsVersion = 15.2;
 					};
+					AA0A62F22E8EA929007F4A7A = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
 					C2B573B01B1CD91E00303B36 = {
 						CreatedOnToolsVersion = 6.3.1;
-						DevelopmentTeam = 9B5WD74GWJ;
-						ProvisioningStyle = Manual;
 					};
 					C2B573D61B1CD9CE00303B36 = {
 						CreatedOnToolsVersion = 6.3.1;
-						DevelopmentTeam = 9B5WD74GWJ;
-						ProvisioningStyle = Manual;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.Mac = {
 								enabled = 1;
@@ -616,13 +656,116 @@
 				English,
 				en,
 				Base,
+				de,
+				af,
+				sq,
+				ar,
+				an,
+				hy,
+				ast,
+				az,
+				eu,
+				be,
+				bn,
+				bs,
+				br,
+				my,
+				ca,
+				"zh-Hans",
+				"zh-Hant-TW",
+				"zh-HK",
+				hr,
+				da,
+				nl,
+				"en-GB",
+				eo,
+				fo,
+				fr,
+				gd,
+				gl,
+				ka,
+				el,
+				he,
+				hi,
+				fi,
+				et,
+				cs,
+				bg,
+				hu,
+				is,
+				ig,
+				id,
+				ia,
+				ga,
+				it,
+				ja,
+				kab,
+				kn,
+				km,
+				ko,
+				lo,
+				la,
+				lv,
+				lt,
+				lb,
+				mk,
+				ms,
+				mr,
+				mn,
+				ne,
+				"nb-NO",
+				"nn-NO",
+				oc,
+				ps,
+				fa,
+				pl,
+				"pt-BR",
+				"pt-PT",
+				ro,
+				ru,
+				sc,
+				sr,
+				"sr-Latn",
+				si,
+				sk,
+				sl,
+				es,
+				"es-AR",
+				"es-CL",
+				"es-CO",
+				"es-CR",
+				"es-DO",
+				"es-EC",
+				"es-SV",
+				"es-GT",
+				"es-HN",
+				"es-419",
+				"es-MX",
+				"es-NI",
+				"es-PA",
+				"es-PY",
+				"es-PE",
+				"es-PR",
+				"es-UY",
+				sw,
+				sv,
+				ta,
+				th,
+				tr,
+				tk,
+				uk,
+				hsb,
+				ug,
+				uz,
+				vi,
+				cy,
+				zu,
+				ur,
 			);
 			mainGroup = C2B573941B1CD88000303B36;
 			packageReferences = (
-				5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */,
-				5358F2B72BAA045E00E3C729 /* XCRemoteSwiftPackageReference "NextcloudCapabilitiesKit" */,
 				53651E422BBC0C7F00ECAC29 /* XCRemoteSwiftPackageReference "SuggestionsTextFieldKit" */,
-				53C331B02BCD28C30093D38B /* XCRemoteSwiftPackageReference "NextcloudFileProviderKit" */,
+				AA5FB9E42EF54F410018BDAE /* XCLocalSwiftPackageReference "../NextcloudFileProviderKit" */,
 			);
 			productRefGroup = C2B573B21B1CD91E00303B36 /* Products */;
 			projectDirPath = "";
@@ -633,6 +776,7 @@
 				538E396627F4765000FA63D5 /* FileProviderExt */,
 				53B9797D2B84C81F002DA742 /* FileProviderUIExt */,
 				53903D0B2956164F00D0B308 /* NCDesktopClientSocketKit */,
+				AA0A62F22E8EA929007F4A7A /* NextcloudDev */,
 			);
 		};
 /* End PBXProject section */
@@ -642,6 +786,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AAF19A682E8D5B4E005FE5B0 /* Assets.xcassets in Resources */,
+				AAA69D932E3BB09900BBD44D /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -657,8 +803,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				537BD67C2C58D7B700446ED0 /* LockViewController.xib in Resources */,
+				AAC00D2A2E37B29D006010FE /* Localizable.xcstrings in Resources */,
 				531522822B8E01C6002E31BE /* ShareTableItemView.xib in Resources */,
 				537630912B85F4980026BFAB /* ShareViewController.xib in Resources */,
+				AAF19A7A2E8D5B63005FE5B0 /* Assets.xcassets in Resources */,
+				AA7F17E12E7017230000E928 /* Authentication.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -706,12 +855,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				53D666612B70C9A70042C03D /* FileProviderConfig.swift in Sources */,
+				AA9987862E72B6EF00B2C428 /* NextcloudKit+clearAccountErrorState.swift in Sources */,
+				53D666612B70C9A70042C03D /* FileProviderDomainDefaults.swift in Sources */,
 				53ED473029C9CE0B00795DB1 /* FileProviderExtension+ClientInterface.swift in Sources */,
 				538E396D27F4765000FA63D5 /* FileProviderExtension.swift in Sources */,
+				AA7F17E72E7038370000E928 /* NSError+FileProviderErrorCode.swift in Sources */,
 				536EFBF7295CF58100F4CB13 /* FileProviderSocketLineProcessor.swift in Sources */,
+				AA02B2AB2E7048C800C72B34 /* Keychain.swift in Sources */,
 				537630972B860D920026BFAB /* FPUIExtensionService.swift in Sources */,
-				535AE30E29C0A2CC0042A9BA /* Logger+Extensions.swift in Sources */,
 				537630952B860D560026BFAB /* FPUIExtensionServiceSource.swift in Sources */,
 				530429982DD44235004BB598 /* FileProviderExtension+CustomActions.swift in Sources */,
 				5350E4E92B0C534A00F276CB /* ClientCommunicationService.swift in Sources */,
@@ -732,9 +883,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				537BD6822C58F72E00446ED0 /* MetadataProvider.swift in Sources */,
-				531EDE572D897B4F00FD91F9 /* Eviction.swift in Sources */,
 				537630932B85F4B00026BFAB /* ShareViewController.swift in Sources */,
 				53FE14672B8F78B6006C4193 /* ShareOptionsView.swift in Sources */,
+				AA560CE72EDDB84000CD423E /* ServiceResolver.swift in Sources */,
 				53651E462BBC0D9500ECAC29 /* ShareeSuggestionsDataSource.swift in Sources */,
 				537BD67A2C58D67800446ED0 /* LockViewController.swift in Sources */,
 				53FE14652B8F6700006C4193 /* ShareViewDataSourceUIDelegate.swift in Sources */,
@@ -742,9 +893,8 @@
 				5374FD442B95EE1400C78D54 /* ShareController.swift in Sources */,
 				53FE145B2B8F1305006C4193 /* NKShare+Extensions.swift in Sources */,
 				53FE14592B8E3F6C006C4193 /* ShareTableItemView.swift in Sources */,
-				5376307D2B85E2ED0026BFAB /* Logger+Extensions.swift in Sources */,
+				AA7F17E32E70173E0000E928 /* AuthenticationViewController.swift in Sources */,
 				53FE14502B8E0658006C4193 /* ShareTableViewDataSource.swift in Sources */,
-				537BD6802C58F01B00446ED0 /* FileProviderCommunication.swift in Sources */,
 				537630982B8612F00026BFAB /* FPUIExtensionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -789,9 +939,10 @@
 			target = 53903D0B2956164F00D0B308 /* NCDesktopClientSocketKit */;
 			targetProxy = 53903D322956173F00D0B308 /* PBXContainerItemProxy */;
 		};
-		53FE14522B8E1213006C4193 /* PBXTargetDependency */ = {
+		AA3CA0352EC35A3B00AFCA0C /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			productRef = 53FE14512B8E1213006C4193 /* NextcloudKit */;
+			target = 53B9797D2B84C81F002DA742 /* FileProviderUIExt */;
+			targetProxy = AA3CA0342EC35A3B00AFCA0C /* PBXContainerItemProxy */;
 		};
 		C2B573E01B1CD9CE00303B36 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -815,15 +966,8 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = FileProviderExt/FileProviderExt.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
-				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -872,15 +1016,8 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = FileProviderExt/FileProviderExt.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -924,7 +1061,6 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -959,7 +1095,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.owncloud.NCDesktopClientSocketKit;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextcloud.NCDesktopClientSocketKit;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -991,7 +1127,6 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1020,7 +1155,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.owncloud.NCDesktopClientSocketKit;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nextcloud.NCDesktopClientSocketKit;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = auto;
@@ -1052,11 +1187,8 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = FileProviderUIExt/FileProviderUIExt.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -1087,6 +1219,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(OC_APPLICATION_REV_DOMAIN).$(PRODUCT_NAME)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1116,13 +1249,8 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = FileProviderUIExt/FileProviderUIExt.entitlements;
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
@@ -1147,6 +1275,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(OC_APPLICATION_REV_DOMAIN).$(PRODUCT_NAME)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1161,8 +1290,79 @@
 			};
 			name = Release;
 		};
+		AA0A62F32E8EA929007F4A7A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUGGING_SYMBOLS = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		AA0A62F42E8EA929007F4A7A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				OTHER_CFLAGS = "";
+				OTHER_LDFLAGS = "";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 		C2B573991B1CD88000303B36 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA826BEE2E8EAA7500CE49C4 /* Build.xcconfig */;
 			buildSettings = {
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
@@ -1182,6 +1382,8 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = NKUJUXUJ3B;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
@@ -1192,11 +1394,13 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Debug;
 		};
 		C2B5739A1B1CD88000303B36 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = AA826BEE2E8EAA7500CE49C4 /* Build.xcconfig */;
 			buildSettings = {
 				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
@@ -1216,6 +1420,8 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = NKUJUXUJ3B;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1225,6 +1431,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;
 		};
@@ -1247,11 +1454,8 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -1277,7 +1481,7 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_OBJC_BRIDGING_HEADER = "desktopclient/desktopclient-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -1304,11 +1508,8 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
@@ -1327,7 +1528,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_OBJC_BRIDGING_HEADER = "desktopclient/desktopclient-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -1351,12 +1552,8 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_ENTITLEMENTS = FinderSyncExt/FinderSyncExt.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -1381,13 +1578,10 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
-				OC_APPLICATION_NAME = ownCloud;
-				OC_APPLICATION_REV_DOMAIN = com.owncloud.desktopclient;
 				OC_OEM_SHARE_ICNS = "";
-				OC_SOCKETAPI_TEAM_IDENTIFIER_PREFIX = "";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 			};
@@ -1410,13 +1604,8 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_ENTITLEMENTS = FinderSyncExt/FinderSyncExt.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
@@ -1435,12 +1624,9 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
-				OC_APPLICATION_NAME = ownCloud;
-				OC_APPLICATION_REV_DOMAIN = com.owncloud.desktopclient;
 				OC_OEM_SHARE_ICNS = "";
-				OC_SOCKETAPI_TEAM_IDENTIFIER_PREFIX = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE = "";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 			};
@@ -1476,6 +1662,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AA0A62F52E8EA929007F4A7A /* Build configuration list for PBXLegacyTarget "NextcloudDev" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0A62F32E8EA929007F4A7A /* Debug */,
+				AA0A62F42E8EA929007F4A7A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		C2B573981B1CD88000303B36 /* Build configuration list for PBXProject "NextcloudIntegration" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1505,23 +1700,14 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA5FB9E42EF54F410018BDAE /* XCLocalSwiftPackageReference "../NextcloudFileProviderKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../NextcloudFileProviderKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
-		5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/nextcloud/NextcloudKit.git";
-			requirement = {
-				kind = exactVersion;
-				version = 6.0.9;
-			};
-		};
-		5358F2B72BAA045E00E3C729 /* XCRemoteSwiftPackageReference "NextcloudCapabilitiesKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/claucambra/NextcloudCapabilitiesKit.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.3.0;
-			};
-		};
 		53651E422BBC0C7F00ECAC29 /* XCRemoteSwiftPackageReference "SuggestionsTextFieldKit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/claucambra/SuggestionsTextFieldKit.git";
@@ -1530,56 +1716,22 @@
 				minimumVersion = 1.0.0;
 			};
 		};
-		53C331B02BCD28C30093D38B /* XCRemoteSwiftPackageReference "NextcloudFileProviderKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/nextcloud/NextcloudFileProviderKit.git";
-			requirement = {
-				branch = "stable-3.0";
-				kind = branch;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		5307A6E52965C6FA001E0C6A /* NextcloudKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */;
-			productName = NextcloudKit;
-		};
-		5307A6E72965DAD8001E0C6A /* NextcloudKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */;
-			productName = NextcloudKit;
-		};
-		5358F2B82BAA0F5300E3C729 /* NextcloudCapabilitiesKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5358F2B72BAA045E00E3C729 /* XCRemoteSwiftPackageReference "NextcloudCapabilitiesKit" */;
-			productName = NextcloudCapabilitiesKit;
-		};
 		53651E432BBC0CA300ECAC29 /* SuggestionsTextFieldKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 53651E422BBC0C7F00ECAC29 /* XCRemoteSwiftPackageReference "SuggestionsTextFieldKit" */;
 			productName = SuggestionsTextFieldKit;
 		};
-		53C331B12BCD28C30093D38B /* NextcloudFileProviderKit */ = {
+		AA5FB9E52EF54F410018BDAE /* NextcloudFileProviderKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 53C331B02BCD28C30093D38B /* XCRemoteSwiftPackageReference "NextcloudFileProviderKit" */;
 			productName = NextcloudFileProviderKit;
 		};
-		53C331B52BCD3AFF0093D38B /* NextcloudFileProviderKit */ = {
+		AA5FB9E72EF54FEA0018BDAE /* NextcloudFileProviderKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 53C331B02BCD28C30093D38B /* XCRemoteSwiftPackageReference "NextcloudFileProviderKit" */;
+			package = AA5FB9E42EF54F410018BDAE /* XCLocalSwiftPackageReference "../NextcloudFileProviderKit" */;
 			productName = NextcloudFileProviderKit;
-		};
-		53FE14512B8E1213006C4193 /* NextcloudKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */;
-			productName = NextcloudKit;
-		};
-		53FE14532B8E1219006C4193 /* NextcloudKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5307A6E42965C6FA001E0C6A /* XCRemoteSwiftPackageReference "NextcloudKit" */;
-			productName = NextcloudKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

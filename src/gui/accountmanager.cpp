@@ -6,6 +6,7 @@
 
 #include "accountmanager.h"
 
+#include "config.h"
 #include "sslerrordialog.h"
 #include "proxyauthhandler.h"
 #include "creds/credentialsfactory.h"
@@ -16,6 +17,9 @@
 #include "libsync/cookiejar.h"
 #include "libsync/theme.h"
 #include "libsync/clientproxy.h"
+#if !DISABLE_ACCOUNT_MIGRATION
+#include "legacyaccountselectiondialog.h"
+#endif
 
 #include <QSettings>
 #include <QDir>
@@ -53,6 +57,9 @@ constexpr auto networkDownloadLimitSettingC = "networkDownloadLimitSetting";
 constexpr auto networkUploadLimitC = "networkUploadLimit";
 constexpr auto networkDownloadLimitC = "networkDownloadLimit";
 constexpr auto encryptionCertificateSha256FingerprintC = "encryptionCertificateSha256Fingerprint";
+#ifdef BUILD_FILE_PROVIDER_MODULE
+constexpr auto fileProviderDomainIdentifierC = "fileProviderDomainIdentifier";
+#endif
 
 constexpr auto dummyAuthTypeC = "dummy";
 constexpr auto httpAuthTypeC = "http";
@@ -74,6 +81,7 @@ constexpr auto maxAccountsVersion = 13;
 constexpr auto maxAccountVersion = 13;
 
 constexpr auto serverHasValidSubscriptionC = "serverHasValidSubscription";
+constexpr auto serverDesktopEnterpriseUpdateChannelC = "desktopEnterpriseChannel";
 
 constexpr auto generalC = "General";
 }
@@ -104,13 +112,25 @@ AccountManager::AccountsRestoreResult AccountManager::restore(const bool alsoRes
     if (skipSettingsKeys.contains(settings->group())) {
         // Should not happen: bad container keys should have been deleted
         qCWarning(lcAccountManager) << "Accounts structure is too new, ignoring";
+        emit(accountListInitialized());
         return AccountsRestoreSuccessWithSkipped;
     }
 
     // If there are no accounts, check the old format.
+#if !DISABLE_ACCOUNT_MIGRATION
     if (settings->childGroups().isEmpty() && !settings->contains(QLatin1String(versionC)) && alsoRestoreLegacySettings) {
-        restoreFromLegacySettings();
+        if(!restoreFromLegacySettings()) {
+            return AccountsNotFound;
+        }
+
+        emit(accountListInitialized());
         return AccountsRestoreSuccessFromLegacyVersion;
+    }
+#endif
+
+    if (settings->childGroups().isEmpty()) {
+        emit(accountListInitialized());
+        return AccountsNotFound;
     }
 
     auto result = AccountsRestoreSuccess;
@@ -118,23 +138,31 @@ AccountManager::AccountsRestoreResult AccountManager::restore(const bool alsoRes
     for (const auto &accountId : settingsChildGroups) {
         settings->beginGroup(accountId);
         if (!skipSettingsKeys.contains(settings->group())) {
-            if (const auto acc = loadAccountHelper(*settings)) {
-                acc->_id = accountId;
-                const auto accState = new AccountState(acc);
-                const auto jar = qobject_cast<CookieJar*>(acc->_networkAccessManager->cookieJar());
-                Q_ASSERT(jar);
-                if (jar) {
-                    jar->restore(acc->cookieJarPath());
-                }
-                addAccountState(accState);
+            const auto acc = loadAccountHelper(*settings);
+            if (!acc) {
+                continue;
             }
+            acc->_id = accountId;
+            const auto accState = new AccountState(acc);
+            const auto jar = qobject_cast<CookieJar*>(acc->_networkAccessManager->cookieJar());
+            Q_ASSERT(jar);
+            if (jar) {
+                jar->restore(acc->cookieJarPath());
+            }
+            addAccountState(accState);
+            migrateNetworkSettings(acc, *settings);
+            settings->endGroup();
         } else {
             qCInfo(lcAccountManager) << "Account" << accountId << "is too new, ignoring";
             _additionalBlockedAccountIds.insert(accountId);
             result = AccountsRestoreSuccessWithSkipped;
         }
-        settings->endGroup();
     }
+
+    emit(accountListInitialized());
+
+    ConfigFile().cleanupGlobalNetworkConfiguration();
+    ClientProxy().cleanupGlobalNetworkConfiguration();   
 
     return result;
 }
@@ -163,7 +191,7 @@ void AccountManager::backwardMigrationSettingsKeys(QStringList *deleteKeys, QStr
         deleteKeys->append(settings->group());
     }
 }
-
+#if !DISABLE_ACCOUNT_MIGRATION
 bool AccountManager::restoreFromLegacySettings()
 {
     qCInfo(lcAccountManager) << "Migrate: restoreFromLegacySettings, checking settings group"
@@ -174,6 +202,7 @@ bool AccountManager::restoreFromLegacySettings()
 
     auto wasLegacyImportDialogDisplayed = false;
     const auto displayLegacyImportDialog = Theme::instance()->displayLegacyImportDialog();
+    QStringList selectedAccountIds;
 
     // if the settings file could not be opened, the childKeys list is empty
     // then try to load settings from a very old place
@@ -205,7 +234,7 @@ bool AccountManager::restoreFromLegacySettings()
             legacyLocations.append({legacyCfgFileParentFolder + unbrandedCfgFileNamePath, legacyCfgFileGrandParentFolder + unbrandedCfgFileRelativePath});
         }
 
-        for (const auto &configFile : legacyLocations) {
+        for (const auto &configFile : std::as_const(legacyLocations)) {
             auto oCSettings = std::make_unique<QSettings>(configFile, QSettings::IniFormat);
             if (oCSettings->status() != QSettings::Status::NoError) {
                 qCInfo(lcAccountManager) << "Error reading legacy configuration file" << oCSettings->status();
@@ -213,30 +242,58 @@ bool AccountManager::restoreFromLegacySettings()
             }
 
             oCSettings->beginGroup(QLatin1String(accountsC));
-            const auto accountsListSize = oCSettings->childGroups().size();
-            oCSettings->endGroup();
+            const auto childGroups = oCSettings->childGroups();
+            const auto accountsListSize = childGroups.size();
+            oCSettings->endGroup(); //accountsC
             if (const QFileInfo configFileInfo(configFile);
                 configFileInfo.exists() && configFileInfo.isReadable()) {
+
                 qCInfo(lcAccountManager) << "Migrate: checking old config " << configFile;
                 if (!forceLegacyImport() && accountsListSize > 0 && displayLegacyImportDialog) {
                     wasLegacyImportDialogDisplayed = true;
-                    const auto importQuestion = accountsListSize > 1
-                        ? tr("%1 accounts were detected from a legacy desktop client.\n"
-                             "Should the accounts be imported?").arg(QString::number(accountsListSize))
-                        : tr("1 account was detected from a legacy desktop client.\n"
-                             "Should the account be imported?");
-                    const auto importMessageBox = new QMessageBox(QMessageBox::Question, tr("Legacy import"), importQuestion);
-                    importMessageBox->addButton(tr("Import"), QMessageBox::AcceptRole);
-                    const auto skipButton = importMessageBox->addButton(tr("Skip"), QMessageBox::DestructiveRole);
-                    importMessageBox->exec();
-                    if (importMessageBox->clickedButton() == skipButton) {
-                        return false;
+                    if (accountsListSize == 1) {
+                        const auto importQuestion =
+                            tr("An account was detected from a legacy desktop client.\n"
+                               "Should the account be imported?");
+                        QMessageBox importMessageBox(QMessageBox::Question, tr("Legacy import"), importQuestion);
+                        importMessageBox.addButton(tr("Import"), QMessageBox::AcceptRole);
+                        const auto skipButton = importMessageBox.addButton(tr("Skip"), QMessageBox::DestructiveRole);
+                        importMessageBox.exec();
+                        if (importMessageBox.clickedButton() == skipButton) {
+                            return false;
+                        }
+                        selectedAccountIds = childGroups;
+                    } else {
+                        QVector<LegacyAccountSelectionDialog::AccountItem> accountsToDisplay;
+                        oCSettings->beginGroup(QLatin1String(accountsC));
+                        for (const auto &accId : childGroups) {
+                            oCSettings->beginGroup(accId);
+                            const auto displayName = oCSettings->value(QLatin1String(displayNameC)).toString();
+                            const auto urlStr = oCSettings->value(QLatin1String(urlC)).toString();
+                            oCSettings->endGroup(); //accId
+                            const auto label = QString("%1 - %2").arg(displayName, urlStr);
+                            accountsToDisplay.push_back({accId, label});
+                        }
+                        oCSettings->endGroup(); //accountsC
+
+                        LegacyAccountSelectionDialog accountSelectionDialog(accountsToDisplay);
+                        if (accountSelectionDialog.exec() != QDialog::Accepted) {
+                            return false;
+                        }
+                        selectedAccountIds = accountSelectionDialog.selectedAccountIds();
+                        if (selectedAccountIds.isEmpty()) {
+                            return false;
+                        }
                     }
+                } else {
+                    selectedAccountIds = childGroups;
                 }
 
+                const auto legacyVersion = oCSettings->value(ConfigFile::clientVersionC, {}).toString();
+                ConfigFile().setClientPreviousVersionString(legacyVersion);
+                qCInfo(lcAccountManager) << "Migrating from" << legacyVersion;
                 qCInfo(lcAccountManager) << "Copy settings" << oCSettings->allKeys().join(", ");
                 settings = std::move(oCSettings);
-
                 ConfigFile::setDiscoveredLegacyConfigPath(configFileInfo.canonicalPath());
                 break;
             } else {
@@ -246,13 +303,41 @@ bool AccountManager::restoreFromLegacySettings()
     }
 
     ConfigFile configFile;
+    // General settings
     configFile.setVfsEnabled(settings->value(ConfigFile::isVfsEnabledC, configFile.isVfsEnabled()).toBool());
-    configFile.setLaunchOnSystemStartup(settings->value(ConfigFile::launchOnSystemStartupC, configFile.launchOnSystemStartup()).toBool());
-    configFile.setOptionalServerNotifications(settings->value(ConfigFile::optionalServerNotificationsC, configFile.optionalServerNotifications()).toBool());
-    configFile.setPromptDeleteFiles(settings->value(ConfigFile::promptDeleteC, configFile.promptDeleteFiles()).toBool());
-    configFile.setShowCallNotifications(settings->value(ConfigFile::showCallNotificationsC, configFile.showCallNotifications()).toBool());
-    configFile.setShowChatNotifications(settings->value(ConfigFile::showChatNotificationsC, configFile.showChatNotifications()).toBool());
-    configFile.setShowInExplorerNavigationPane(settings->value(ConfigFile::showInExplorerNavigationPaneC, configFile.showInExplorerNavigationPane()).toBool());
+    configFile.setLaunchOnSystemStartup(settings->value(ConfigFile::launchOnSystemStartupC,
+                                                        configFile.launchOnSystemStartup()).toBool());
+    const auto useMonoIcons = settings->value(ConfigFile::monoIconsC, configFile.monoIcons()).toBool();
+    Theme::instance()->setSystrayUseMonoIcons(useMonoIcons);
+    configFile.setMonoIcons(useMonoIcons);
+    configFile.setOptionalServerNotifications(settings->value(ConfigFile::optionalServerNotificationsC,
+                                                              configFile.optionalServerNotifications()).toBool());
+    configFile.setPromptDeleteFiles(settings->value(ConfigFile::promptDeleteC,
+                                                    configFile.promptDeleteFiles()).toBool());
+    configFile.setShowCallNotifications(settings->value(ConfigFile::showCallNotificationsC,
+                                                        configFile.showCallNotifications()).toBool());
+    configFile.setShowChatNotifications(settings->value(ConfigFile::showChatNotificationsC,
+                                                        configFile.showChatNotifications()).toBool());
+    configFile.setShowInExplorerNavigationPane(settings->value(ConfigFile::showInExplorerNavigationPaneC,
+                                                               configFile.showInExplorerNavigationPane()).toBool());
+    // Advanced
+    const auto newBigFolderSizeLimit = settings->value(ConfigFile::newBigFolderSizeLimitC, configFile.newBigFolderSizeLimit().second).toLongLong();
+    const auto useNewBigFolderSizeLimit = settings->value(ConfigFile::useNewBigFolderSizeLimitC, configFile.useNewBigFolderSizeLimit()).toBool();
+    configFile.setNewBigFolderSizeLimit(useNewBigFolderSizeLimit, newBigFolderSizeLimit);
+    configFile.setNotifyExistingFoldersOverLimit(settings->value(ConfigFile::notifyExistingFoldersOverLimitC,
+                                                                 configFile.notifyExistingFoldersOverLimit()).toBool());
+    configFile.setStopSyncingExistingFoldersOverLimit(settings->value(ConfigFile::stopSyncingExistingFoldersOverLimitC,
+                                                                      configFile.stopSyncingExistingFoldersOverLimit()).toBool());
+    configFile.setConfirmExternalStorage(settings->value(ConfigFile::confirmExternalStorageC, configFile.confirmExternalStorage()).toBool());
+    configFile.setMoveToTrash(settings->value(ConfigFile::moveToTrashC, configFile.moveToTrash()).toBool());
+    // Info
+    configFile.setUpdateChannel(settings->value(ConfigFile::updateChannelC, configFile.currentUpdateChannel()).toString());
+    auto previousAppName = settings->contains(ConfigFile::legacyAppName) ? ConfigFile::legacyAppName
+                                                                         : ConfigFile::unbrandedAppName;
+    const auto updaterGroupName = QString("%1/%2").arg(previousAppName, ConfigFile::autoUpdateCheckC);
+    configFile.setAutoUpdateCheck(settings->value(updaterGroupName, configFile.autoUpdateCheck()).toBool(), {});
+
+    // Global Proxy and Network
     ClientProxy().saveProxyConfigurationFromSettings(*settings);
     configFile.setUseUploadLimit(settings->value(ConfigFile::useUploadLimitC, configFile.useUploadLimit()).toInt());
     configFile.setUploadLimit(settings->value(ConfigFile::uploadLimitC, configFile.uploadLimit()).toInt());
@@ -260,17 +345,25 @@ bool AccountManager::restoreFromLegacySettings()
     configFile.setDownloadLimit(settings->value(ConfigFile::downloadLimitC, configFile.downloadLimit()).toInt());
 
     // Try to load the single account.
+    configFile.setMigrationPhase(ConfigFile::MigrationPhase::SetupUsers);
     if (!settings->childKeys().isEmpty()) {
         settings->beginGroup(accountsC);
-        const auto childGroups = settings->childGroups();
+        const auto childGroups = selectedAccountIds.isEmpty() ? settings->childGroups() : selectedAccountIds;
+        auto accountsLoaded = false;
         for (const auto &accountId : childGroups) {
             settings->beginGroup(accountId);
-            if (const auto acc = loadAccountHelper(*settings)) {
-                addAccount(acc);
+            const auto acc = loadAccountHelper(*settings);
+            if (!acc) {
+                continue;
             }
+            addAccount(acc);
+            accountsLoaded = true;
+            migrateNetworkSettings(acc, *settings);
             settings->endGroup();
         }
-        return true;
+        configFile.cleanupGlobalNetworkConfiguration();
+        ClientProxy().cleanupGlobalNetworkConfiguration();
+        return accountsLoaded;
     }
 
     if (wasLegacyImportDialogDisplayed) {
@@ -281,6 +374,12 @@ bool AccountManager::restoreFromLegacySettings()
 
     return false;
 }
+#else
+bool AccountManager::restoreFromLegacySettings()
+{
+    return false;
+}
+#endif
 
 void AccountManager::save(bool saveCredentials)
 {
@@ -323,20 +422,28 @@ void AccountManager::saveAccountHelper(const AccountPtr &account, QSettings &set
 {
     qCDebug(lcAccountManager) << "Saving settings to" << settings.fileName();
     settings.setValue(QLatin1String(versionC), maxAccountVersion);
-    settings.setValue(QLatin1String(urlC), account->_url.toString());
+    if (account->isPublicShareLink()) {
+        settings.setValue(QLatin1String(urlC), account->publicShareLinkUrl().toString());
+    } else {
+        settings.setValue(QLatin1String(urlC), account->_url.toString());
+    }
     settings.setValue(QLatin1String(davUserC), account->_davUser);
     settings.setValue(QLatin1String(displayNameC), account->davDisplayName());
     settings.setValue(QLatin1String(serverVersionC), account->_serverVersion);
     settings.setValue(QLatin1String(serverColorC), account->_serverColor);
     settings.setValue(QLatin1String(serverTextColorC), account->_serverTextColor);
     settings.setValue(QLatin1String(serverHasValidSubscriptionC), account->serverHasValidSubscription());
+    settings.setValue(QLatin1String(serverDesktopEnterpriseUpdateChannelC), account->enterpriseUpdateChannel().toString());
     settings.setValue(QLatin1String(encryptionCertificateSha256FingerprintC), account->encryptionCertificateFingerprint());
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    settings.setValue(QLatin1String(fileProviderDomainIdentifierC), account->fileProviderDomainIdentifier());
+#endif
     if (!account->_skipE2eeMetadataChecksumValidation) {
         settings.remove(QLatin1String(skipE2eeMetadataChecksumValidationC));
     } else {
         settings.setValue(QLatin1String(skipE2eeMetadataChecksumValidationC), account->_skipE2eeMetadataChecksumValidation);
     }
-    settings.setValue(networkProxySettingC, static_cast<std::underlying_type_t<Account::AccountNetworkProxySetting>>(account->networkProxySetting()));
+
     settings.setValue(networkProxyTypeC, account->proxyType());
     settings.setValue(networkProxyHostNameC, account->proxyHostName());
     settings.setValue(networkProxyPortC, account->proxyPort());
@@ -427,6 +534,62 @@ void AccountManager::saveAccountHelper(const AccountPtr &account, QSettings &set
     }
 }
 
+void AccountManager::migrateNetworkSettings(const AccountPtr &account, const QSettings &settings)
+{
+    // QSettings from old ConfigFile to new ConfigFile to Account
+    auto accountProxyType = settings.value(networkProxyTypeC).value<QNetworkProxy::ProxyType>();
+    auto accountProxyHost = settings.value(networkProxyHostNameC).toString();
+    auto accountProxyPort = settings.value(networkProxyPortC).toInt();
+    auto accountProxyNeedsAuth = settings.value(networkProxyNeedsAuthC).toBool();
+    auto accountProxyUser = settings.value(networkProxyUserC).toString();
+
+    // Override user settings with global settings if user is set to use global settings
+    ConfigFile configFile;
+    auto accountProxySetting = settings.value(networkProxySettingC).toInt();
+    if (accountProxySetting == 0 && configFile.isMigrationInProgress()) {
+        accountProxyType = static_cast<QNetworkProxy::ProxyType>(configFile.proxyType());
+        accountProxyHost = configFile.proxyHostName();
+        accountProxyPort = configFile.proxyPort();
+        accountProxyNeedsAuth = configFile.proxyNeedsAuth();
+        accountProxyUser = configFile.proxyUser();
+        qCInfo(lcAccountManager) << "Account is using global settings:" << accountProxyType;
+    }
+    account->setProxyType(accountProxyType);
+    account->setProxyHostName(accountProxyHost);
+    account->setProxyPort(accountProxyPort);
+    account->setProxyNeedsAuth(accountProxyNeedsAuth);
+    account->setProxyUser(accountProxyUser);
+    const auto globalUseUploadLimit = static_cast<Account::AccountNetworkTransferLimitSetting>(configFile.useUploadLimit());
+    const auto globalUseDownloadLimit = static_cast<Account::AccountNetworkTransferLimitSetting>(configFile.useDownloadLimit());
+    // User network settings
+    auto userUseUploadLimit = static_cast<Account::AccountNetworkTransferLimitSetting>(settings.value(networkUploadLimitSettingC, 
+        QVariant::fromValue(account->uploadLimitSetting())).toInt());
+    auto userUploadLimit = settings.value(networkUploadLimitC, account->uploadLimit()).toInt();
+    auto userUseDownloadLimit = static_cast<Account::AccountNetworkTransferLimitSetting>(settings.value(networkDownloadLimitSettingC, 
+        QVariant::fromValue(account->downloadLimitSetting())).toInt());
+    auto userDownloadLimit = settings.value(networkDownloadLimitC, account->downloadLimit()).toInt();
+    if (userUseUploadLimit == Account::AccountNetworkTransferLimitSetting::LegacyGlobalLimit) {
+        userUseUploadLimit = globalUseUploadLimit;
+        userUploadLimit = configFile.uploadLimit();
+        qCDebug(lcAccountManager) << "Overriding upload limit with global setting:" << userUseUploadLimit 
+            << "- upload limit:" << userUploadLimit;
+    }
+    if (userUseDownloadLimit == Account::AccountNetworkTransferLimitSetting::LegacyGlobalLimit) {
+        userUseDownloadLimit = globalUseDownloadLimit;
+        userDownloadLimit = configFile.downloadLimit();
+        qCDebug(lcAccountManager) << "Overriding download limit with global setting" << userUseDownloadLimit 
+            << "- download limit:" << userDownloadLimit;
+    }
+    if (userUseUploadLimit != Account::AccountNetworkTransferLimitSetting::NoLimit) {
+        account->setUploadLimitSetting(userUseUploadLimit);
+        account->setUploadLimit(userUploadLimit);
+    }
+    if (userUseDownloadLimit != Account::AccountNetworkTransferLimitSetting::NoLimit) {
+        account->setDownloadLimitSetting(userUseDownloadLimit);
+        account->setDownloadLimit(userDownloadLimit);
+    }
+}
+
 AccountPtr AccountManager::loadAccountHelper(QSettings &settings)
 {
     const auto urlConfig = settings.value(QLatin1String(urlC));
@@ -487,6 +650,9 @@ AccountPtr AccountManager::loadAccountHelper(QSettings &settings)
     acc->_serverTextColor = settings.value(QLatin1String(serverTextColorC)).value<QColor>();
     acc->_skipE2eeMetadataChecksumValidation = settings.value(QLatin1String(skipE2eeMetadataChecksumValidationC), {}).toBool();
     acc->_davUser = settings.value(QLatin1String(davUserC)).toString();
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    acc->setFileProviderDomainIdentifier(settings.value(QLatin1String(fileProviderDomainIdentifierC)).toString());
+#endif
 
     acc->_settingsMap.insert(QLatin1String(userC), settings.value(userC));
     acc->setDavDisplayName(settings.value(QLatin1String(displayNameC), "").toString());
@@ -498,30 +664,26 @@ AccountPtr AccountManager::loadAccountHelper(QSettings &settings)
         }
         acc->_settingsMap.insert(key, settings.value(key));
     }
-
     acc->setCredentials(CredentialsFactory::create(authType));
 
-    acc->setNetworkProxySetting(settings.value(networkProxySettingC).value<Account::AccountNetworkProxySetting>());
-    acc->setProxyType(settings.value(networkProxyTypeC).value<QNetworkProxy::ProxyType>());
-    acc->setProxyHostName(settings.value(networkProxyHostNameC).toString());
-    acc->setProxyPort(settings.value(networkProxyPortC).toInt());
-    acc->setProxyNeedsAuth(settings.value(networkProxyNeedsAuthC).toBool());
-    acc->setProxyUser(settings.value(networkProxyUserC).toString());
     acc->setUploadLimitSetting(
         settings.value(
             networkUploadLimitSettingC,
-            QVariant::fromValue(Account::AccountNetworkTransferLimitSetting::GlobalLimit)
+            QVariant::fromValue(Account::AccountNetworkTransferLimitSetting::NoLimit)
         ).value<Account::AccountNetworkTransferLimitSetting>());
     acc->setDownloadLimitSetting(
         settings.value(
             networkDownloadLimitSettingC,
-            QVariant::fromValue(Account::AccountNetworkTransferLimitSetting::GlobalLimit)
+            QVariant::fromValue(Account::AccountNetworkTransferLimitSetting::NoLimit)
         ).value<Account::AccountNetworkTransferLimitSetting>());
     acc->setUploadLimit(settings.value(networkUploadLimitC).toInt());
     acc->setDownloadLimit(settings.value(networkDownloadLimitC).toInt());
 
+    ConfigFile configFile;
     const auto proxyPasswordKey = QString(acc->userIdAtHostWithPort() + networkProxyPasswordKeychainKeySuffixC);
-    const auto job = new QKeychain::ReadPasswordJob(Theme::instance()->appName(), this);
+    const auto appName = configFile.isUnbrandedToBrandedMigrationInProgress() ? ConfigFile::unbrandedAppName 
+        : Theme::instance()->appName();
+    const auto job = new QKeychain::ReadPasswordJob(appName, this);
     job->setKey(proxyPasswordKey);
     connect(job, &QKeychain::Job::finished, this, [acc](const QKeychain::Job *const incomingJob) {
         const auto incomingReadJob = qobject_cast<const QKeychain::ReadPasswordJob *>(incomingJob);
@@ -582,6 +744,11 @@ AccountState *AccountManager::addAccount(const AccountPtr &newAccount)
 
     const auto newAccountState = new AccountState(newAccount);
     addAccountState(newAccountState);
+
+    if (_accounts.size() == 1) {
+        emit(accountListInitialized());
+    }
+
     return newAccountState;
 }
 
@@ -602,14 +769,13 @@ void AccountManager::deleteAccount(OCC::AccountState *account)
     settings->remove(account->account()->id());
 
     // Forget E2E keys
-    account->account()->e2e()->forgetSensitiveData(account->account());
+    account->account()->e2e()->forgetSensitiveData();
 
     account->account()->deleteAppToken();
 
-    // clean up config from subscriptions if the account removed was the only with valid subscription
-    if (account->account()->serverHasValidSubscription()) {
-        updateServerHasValidSubscriptionConfig();
-    }
+    // clean up config from subscriptions and enterprise channel
+    updateServerHasValidSubscriptionConfig();
+    updateServerDesktopEnterpriseUpdateChannel();
 
     emit accountSyncConnectionRemoved(account);
     emit accountRemoved(account);
@@ -618,17 +784,61 @@ void AccountManager::deleteAccount(OCC::AccountState *account)
 void AccountManager::updateServerHasValidSubscriptionConfig()
 {
     auto serverHasValidSubscription = false;
-    for (const auto &account : _accounts) {
-        if (!account->account()->serverHasValidSubscription()) {
-            continue;
+    for (const auto &account : std::as_const(_accounts)) {
+        if (account->account()->serverHasValidSubscription()) {
+            serverHasValidSubscription = true;
+            break;
         }
-
-        serverHasValidSubscription = true;
-        break;
     }
 
-    ConfigFile().setServerHasValidSubscription(serverHasValidSubscription);
+    if (ConfigFile().serverHasValidSubscription() != serverHasValidSubscription) {
+        ConfigFile().setServerHasValidSubscription(serverHasValidSubscription);
+    }
 }
+
+void AccountManager::updateServerDesktopEnterpriseUpdateChannel()
+{
+    UpdateChannel most_stable_channel = UpdateChannel::Invalid;
+    for (const auto &account : std::as_const(_accounts)) {
+        if (const auto accounts_channel = account->account()->enterpriseUpdateChannel();
+            account->account()->serverHasValidSubscription() && accounts_channel > most_stable_channel) {
+            most_stable_channel = accounts_channel;
+        }
+    }
+
+    ConfigFile().setDesktopEnterpriseChannel(most_stable_channel.toString());
+}
+
+#ifdef BUILD_FILE_PROVIDER_MODULE
+void AccountManager::setFileProviderDomainIdentifier(const QString &accountUserIdAtHost, const QString &identifier)
+{
+    if (const auto accState = accountFromUserId(accountUserIdAtHost)) {
+        const auto acc = accState->account();
+        if (acc->fileProviderDomainIdentifier() == identifier) {
+            return;
+        }
+
+        acc->setFileProviderDomainIdentifier(identifier);
+        saveAccount(acc);
+    }
+}
+
+AccountStatePtr AccountManager::accountFromFileProviderDomainIdentifier(const QString &identifier) const
+{
+    if (identifier.isEmpty()) {
+        return {};
+    }
+
+    const auto accountsList = accounts();
+    
+    for (const auto &account : accountsList) {
+        if (account->account()->fileProviderDomainIdentifier() == identifier) {
+            return account;
+        }
+    }
+    return {};
+}
+#endif
 
 AccountPtr AccountManager::createAccount()
 {
@@ -654,7 +864,7 @@ void AccountManager::shutdown()
 
 QList<AccountStatePtr> AccountManager::accounts() const
 {
-     return _accounts;
+    return _accounts;
 }
 
 bool AccountManager::isAccountIdAvailable(const QString &id) const
@@ -691,17 +901,15 @@ void AccountManager::addAccountState(AccountState *const accountState)
     _accounts << ptr;
     ptr->trySignIn();
 
-    // update config subscriptions if the account added is the only with valid subscription
-    if (accountState->account()->serverHasValidSubscription() && !ConfigFile().serverHasValidSubscription()) {
-        updateServerHasValidSubscriptionConfig();
-    }
+    updateServerHasValidSubscriptionConfig();
+    updateServerDesktopEnterpriseUpdateChannel();
 
     emit accountAdded(accountState);
 }
 
 bool AccountManager::forceLegacyImport() const
 {
-    return _forceLegacyImport;
+   return _forceLegacyImport;
 }
 
 void AccountManager::setForceLegacyImport(const bool forceLegacyImport)

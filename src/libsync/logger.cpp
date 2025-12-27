@@ -31,6 +31,8 @@ constexpr int CrashLogSize = 20;
 constexpr auto MaxLogLinesCount = 50000;
 constexpr auto MaxLogLinesBeforeFlush = 10;
 
+static QtMessageHandler s_originalMessageHandler = nullptr;
+
 static bool compressLog(const QString &originalName, const QString &targetName)
 {
 #ifdef ZLIB_FOUND
@@ -76,7 +78,7 @@ Logger::Logger(QObject *parent)
                                       "]%{if-debug}\t[ %{function} ]%{endif}:\t%{message}"));
     _crashLog.resize(CrashLogSize);
 #ifndef NO_MSG_HANDLER
-    qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &ctx, const QString &message) {
+    s_originalMessageHandler = qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &ctx, const QString &message) {
         Logger::instance()->doLog(type, ctx, message);
     });
 #endif
@@ -119,6 +121,11 @@ void Logger::doLog(QtMsgType type, const QMessageLogContext &ctx, const QString 
         const auto msgW = QStringLiteral("%1\n").arg(msg).toStdWString();
         OutputDebugString(msgW.c_str());
     }
+#elif defined Q_OS_MACOS && defined QT_DEBUG
+    // write logs to Xcode console (stderr)
+    {
+        std::cerr << msg.toStdString() << std::endl;
+    }
 #endif
     {
         QMutexLocker lock(&_mutex);
@@ -154,11 +161,9 @@ void Logger::doLog(QtMsgType type, const QMessageLogContext &ctx, const QString 
             }
         }
         if (type == QtFatalMsg) {
+            dumpCrashLog();
             closeNoLock();
-#if defined(Q_OS_WIN)
-            // Make application terminate in a way that can be caught by the crash reporter
-            Utility::crash();
-#endif
+            s_originalMessageHandler(type, ctx, message);
         }
     }
     emit logWindowLog(msg);
@@ -166,7 +171,6 @@ void Logger::doLog(QtMsgType type, const QMessageLogContext &ctx, const QString 
 
 void Logger::closeNoLock()
 {
-    dumpCrashLog();
     if (_logstream)
     {
         _logstream->flush();
@@ -235,6 +239,14 @@ void Logger::setupTemporaryFolderLogDir()
     if (!QDir().mkpath(dir)) {
         return;
     }
+
+    // Since we're using the temp folder, lock down permissions to owner only
+    QFile::Permissions perm = QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner;
+    QFile file(dir);
+    file.setPermissions(perm);
+    
+    setLogDebug(true);
+    setLogExpire(4 /*hours*/);
     setLogDir(dir);
     _temporaryFolderLogDir = true;
 }
@@ -270,6 +282,7 @@ void Logger::dumpCrashLog()
             out << _crashLog[(_crashLogIndex + i) % CrashLogSize] << QLatin1Char('\n');
         }
     }
+    qDebug() << "crash log written in" << logFile.fileName();
 }
 
 void Logger::enterNextLogFileNoLock(const QString &baseFileName, LogType type)

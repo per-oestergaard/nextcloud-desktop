@@ -8,8 +8,6 @@
 #include <QObject>
 #include <QtQuickWidgets/QtQuickWidgets>
 
-#include "gui/macOS/fileproviderdomainsyncstatus.h"
-
 class QAbstractListModel;
 
 namespace OCC {
@@ -18,6 +16,9 @@ class UserInfo;
 
 namespace Mac {
 
+/**
+ * @brief Dedicated type to manage account configuration related to macOS file provider domains.
+ */
 class FileProviderSettingsController : public QObject
 {
     Q_OBJECT
@@ -30,38 +31,31 @@ public:
                                                    const QQuickWidget::ResizeMode resizeMode = QQuickWidget::SizeRootObjectToView);
 
     [[nodiscard]] QStringList vfsEnabledAccounts() const;
+
+    /**
+     * @brief One-time changes in configuration and file provider domains to ensure client deployments updated to a sandboxed release still work.
+     */
+    void migrateToAppSandbox();
+
     [[nodiscard]] Q_INVOKABLE bool vfsEnabledForAccount(const QString &userIdAtHost) const;
-    [[nodiscard]] unsigned long long localStorageUsageForAccount(const QString &userIdAtHost) const;
-    [[nodiscard]] Q_INVOKABLE float localStorageUsageGbForAccount(const QString &userIdAtHost) const;
-    [[nodiscard]] unsigned long long remoteStorageUsageForAccount(const QString &userIdAtHost) const;
-    [[nodiscard]] Q_INVOKABLE float remoteStorageUsageGbForAccount(const QString &userIdAtHost) const;
     [[nodiscard]] Q_INVOKABLE bool trashDeletionEnabledForAccount(const QString &userIdAtHost) const;
     [[nodiscard]] Q_INVOKABLE bool trashDeletionSetForAccount(const QString &userIdAtHost) const;
 
-    [[nodiscard]] Q_INVOKABLE QAbstractListModel *materialisedItemsModelForAccount(const QString &userIdAtHost);
-    [[nodiscard]] Q_INVOKABLE FileProviderDomainSyncStatus *domainSyncStatusForAccount(const QString &userIdAtHost) const;
-
 public slots:
-    void setVfsEnabledForAccount(const QString &userIdAtHost, const bool setEnabled);
+    void setVfsEnabledForAccount(const QString &userIdAtHost, const bool setEnabled, const bool showInformationDialog = true);
     void setTrashDeletionEnabledForAccount(const QString &userIdAtHost, const bool setEnabled);
 
-    void createEvictionWindowForAccount(const QString &userIdAtHost);
-    void refreshMaterialisedItemsForAccount(const QString &userIdAtHost);
-    void signalFileProviderDomain(const QString &userIdAtHost);
-    void createDebugArchive(const QString &userIdAtHost);
-
 signals:
-    void vfsEnabledAccountsChanged();
-    void localStorageUsageForAccountChanged(const QString &userIdAtHost);
-    void remoteStorageUsageForAccountChanged(const QString &userIdAtHost);
-    void materialisedItemsForAccountChanged(const QString &userIdAtHost);
     void trashDeletionEnabledForAccountChanged(const QString &userIdAtHost);
     void trashDeletionSetForAccountChanged(const QString &userIdAtHost);
 
 private:
     explicit FileProviderSettingsController(QObject *parent = nullptr);
 
+    [[nodiscard]] QString fileProviderDomainIdentifierForAccount(const QString &userIdAtHost) const;
+
     class MacImplementation;
+    friend class MacImplementation;
     MacImplementation *d;
 
     QHash<QString, UserInfo*> _userInfos;

@@ -6,19 +6,23 @@
 
 #pragma once
 
+#include "networkjobs.h"
+#include "syncoptions.h"
+#include "syncfileitem.h"
+
+#include "common/folderquota.h"
+#include "common/remoteinfo.h"
+
 #include <QObject>
 #include <QElapsedTimer>
 #include <QStringList>
 #include <csync.h>
 #include <QMap>
 #include <QSet>
-#include "networkjobs.h"
 #include <QMutex>
 #include <QWaitCondition>
 #include <QRunnable>
 #include <deque>
-#include "syncoptions.h"
-#include "syncfileitem.h"
 
 class ExcludedFiles;
 
@@ -44,61 +48,6 @@ class SyncJournalDb;
 class ProcessDirectoryJob;
 
 enum class ErrorCategory;
-
-/**
- * Represent the quota for each folder retrieved from the server
- * bytesUsed: space used in bytes
- * bytesAvailale: free space available in bytes or
- *                -1: Uncomputed free space - new folder (externally created) not yet scanned by the server
- *                -2: Unknown free space
- *                -3: Unlimited free space.
- */
-struct FolderQuota
-{
-    int64_t bytesUsed = 0;
-    int64_t bytesAvailable = 0;
-};
-
-/**
- * Represent all the meta-data about a file in the server
- */
-struct RemoteInfo
-{
-    /** FileName of the entry (this does not contains any directory or path, just the plain name */
-    QString name;
-    QByteArray etag;
-    QByteArray fileId;
-    QByteArray checksumHeader;
-    OCC::RemotePermissions remotePerm;
-    time_t modtime = 0;
-    int64_t size = 0;
-    int64_t sizeOfFolder = 0;
-    bool isDirectory = false;
-    bool _isE2eEncrypted = false;
-    bool isFileDropDetected = false;
-    QString e2eMangledName;
-    bool sharedByMe = false;
-
-    [[nodiscard]] bool isValid() const { return !name.isNull(); }
-    [[nodiscard]] bool isE2eEncrypted() const { return _isE2eEncrypted; }
-
-    QString directDownloadUrl;
-    QString directDownloadCookies;
-
-    SyncFileItem::LockStatus locked = SyncFileItem::LockStatus::UnlockedItem;
-    QString lockOwnerDisplayName;
-    QString lockOwnerId;
-    SyncFileItem::LockOwnerType lockOwnerType = SyncFileItem::LockOwnerType::UserLock;
-    QString lockEditorApp;
-    qint64 lockTime = 0;
-    qint64 lockTimeout = 0;
-    QString lockToken;
-
-    bool isLivePhoto = false;
-    QString livePhotoFile;
-
-    FolderQuota folderQuota;
-};
 
 struct LocalInfo
 {
@@ -127,7 +76,11 @@ class DiscoverySingleLocalDirectoryJob : public QObject, public QRunnable
 {
     Q_OBJECT
 public:
-    explicit DiscoverySingleLocalDirectoryJob(const AccountPtr &account, const QString &localPath, OCC::Vfs *vfs, QObject *parent = nullptr);
+    explicit DiscoverySingleLocalDirectoryJob(const AccountPtr &account,
+                                              const QString &localPath,
+                                              OCC::Vfs *vfs,
+                                              bool fileSystemReliablePermissions,
+                                              QObject *parent = nullptr);
 
     void run() override;
 signals:
@@ -142,6 +95,7 @@ private:
     QString _localPath;
     AccountPtr _account;
     OCC::Vfs* _vfs;
+    bool _fileSystemReliablePermissions = false;
 public:
 };
 
@@ -163,6 +117,7 @@ public:
         sounds to me like it would be much more efficient to just have the e2ee parent folder that we are
         inside*/
                                          const QSet<QString> &topLevelE2eeFolderPaths,
+                                         SyncFileItem::EncryptionStatus parentEncryptionStatus,
                                          QObject *parent = nullptr);
     // Specify that this is the root and we need to check the data-fingerprint
     void setIsRootPath() { _isRootPath = true; }
@@ -178,12 +133,13 @@ signals:
     void firstDirectoryPermissions(OCC::RemotePermissions);
     void etag(const QByteArray &, const QDateTime &time);
     void finished(const OCC::HttpResult<QVector<OCC::RemoteInfo>> &result);
-    void setfolderQuota(const FolderQuota &folderQuota);
+    void setfolderQuota(const OCC::FolderQuota &folderQuota);
+    void firstDirectoryFileId(qint64 fileId);
 
 private slots:
     void directoryListingIteratedSlot(const QString &, const QMap<QString, QString> &);
     void lsJobFinishedWithoutErrorSlot();
-    void lsJobFinishedWithErrorSlot(QNetworkReply *);
+    void lsJobFinishedWithErrorSlot(QNetworkReply *reply);
     void fetchE2eMetadata();
     void metadataReceived(const QJsonDocument &json, int statusCode);
     void metadataError(const QByteArray& fileId, int httpReturnCode);
@@ -322,6 +278,8 @@ class DiscoveryPhase : public QObject
 
     void enqueueDirectoryToDelete(const QString &path, ProcessDirectoryJob* const directoryJob);
 
+    bool recursiveCheckForDeletedParents(const QString &itemPath) const;
+
     /// contains files/folder names that are requested to be deleted permanently
     QSet<QString> _permanentDeletionRequests;
 
@@ -365,6 +323,8 @@ public:
 
     bool _noCaseConflictRecordsInDb = false;
 
+    bool _fileSystemReliablePermissions = false;
+
     QSet<QString> _topLevelE2eeFolderPaths;
 
 signals:
@@ -382,7 +342,7 @@ signals:
       */
     void silentlyExcluded(const QString &folderPath);
 
-    void addErrorToGui(const SyncFileItem::Status status, const QString &errorMessage, const QString &subject, const OCC::ErrorCategory category);
+    void addErrorToGui(const OCC::SyncFileItem::Status status, const QString &errorMessage, const QString &subject, const OCC::ErrorCategory category);
 
     void remnantReadOnlyFolderDiscovered(const OCC::SyncFileItemPtr &item);
 private slots:

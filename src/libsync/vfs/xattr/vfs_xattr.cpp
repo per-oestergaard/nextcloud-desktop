@@ -60,15 +60,17 @@ bool VfsXAttr::isHydrating() const
     return false;
 }
 
-Result<void, QString> VfsXAttr::updateMetadata(const QString &filePath, time_t modtime, qint64, const QByteArray &)
+OCC::Result<OCC::Vfs::ConvertToPlaceholderResult, QString> VfsXAttr::updateMetadata(const SyncFileItem &syncItem, const QString &filePath, const QString &replacesFile)
 {
-    if (modtime <= 0) {
+    Q_UNUSED(replacesFile)
+
+    if (syncItem._modtime <= 0) {
         return {tr("Error updating metadata due to invalid modification time")};
     }
 
-    qCDebug(lcVfsXAttr()) << "setModTime" << filePath << modtime;
-    FileSystem::setModTime(filePath, modtime);
-    return {};
+    qCDebug(lcVfsXAttr()) << "setModTime" << filePath << syncItem._modtime;
+    FileSystem::setModTime(filePath, syncItem._modtime);
+    return {OCC::Vfs::ConvertToPlaceholderResult::Ok};
 }
 
 Result<void, QString> VfsXAttr::createPlaceholder(const SyncFileItem &item)
@@ -93,6 +95,21 @@ Result<void, QString> VfsXAttr::createPlaceholder(const SyncFileItem &item)
     qCDebug(lcVfsXAttr()) << "setModTime" << path << item._modtime;
     FileSystem::setModTime(path, item._modtime);
     return xattr::addNextcloudPlaceholderAttributes(path);
+}
+
+Result<void, QString> VfsXAttr::createPlaceholders(const QList<SyncFileItemPtr> &items)
+{
+    auto result = Result<void, QString>{};
+
+    for (const auto &oneItem : items) {
+        const auto itemResult = createPlaceholder(*oneItem);
+        if (!itemResult) {
+            result = itemResult;
+            break;
+        }
+    }
+
+    return result;
 }
 
 Result<void, QString> VfsXAttr::dehydratePlaceholder(const SyncFileItem &item)

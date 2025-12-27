@@ -7,6 +7,7 @@
 #pragma once
 
 #include <QObject>
+#include <cstdint>
 #include "csync_exclude.h"
 #include "discoveryphase.h"
 #include "syncfileitem.h"
@@ -251,6 +252,8 @@ private:
     bool maybeRenameForWindowsCompatibility(const QString &absoluteFileName,
                                             CSYNC_EXCLUDE_TYPE excludeReason);
 
+    [[nodiscard]] bool checkNewDeleteConflict(const SyncFileItemPtr &item) const;
+
     qint64 _lastSyncTimestamp = 0;
 
     QueryMode _queryServer = QueryMode::NormalQuery;
@@ -298,14 +301,16 @@ private:
 
     FolderQuota _folderQuota;
 
-    int64_t folderQuotaAvailable(const SyncFileItemPtr &item);
+    int64_t folderBytesAvailable(const SyncFileItemPtr &item, const FolderQuota::ServerEntry serverEntry) const;
 
 signals:
     void finished();
     // The root etag of this directory was fetched
     void etag(const QByteArray &, const QDateTime &time);
+    void updatedRootFolderQuota(const int64_t &bytesUsed, const int64_t &bytesAvailable);
+    void rootFileIdReceived(qint64 fileId);
 
 private slots:
-    void setFolderQuota(const FolderQuota &folderQuota);
+    void setFolderQuota(const OCC::FolderQuota &folderQuota);
 };
 }

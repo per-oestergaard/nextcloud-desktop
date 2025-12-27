@@ -261,15 +261,12 @@ bool ProcessDirectoryJob::handleExcluded(const QString &path, const Entries &ent
 
     const auto fileName = path.mid(path.lastIndexOf('/') + 1);
 
+    const auto isLocal = entries.localEntry.isValid();
+
     if (excluded == CSYNC_NOT_EXCLUDED) {
         const auto endsWithSpace = fileName.endsWith(QLatin1Char(' '));
-        const auto startsWithSpace = fileName.startsWith(QLatin1Char(' '));
-        if (startsWithSpace && endsWithSpace) {
-            excluded = CSYNC_FILE_EXCLUDE_LEADING_AND_TRAILING_SPACE;
-        } else if (endsWithSpace) {
+        if (endsWithSpace) {
             excluded = CSYNC_FILE_EXCLUDE_TRAILING_SPACE;
-        } else if (startsWithSpace) {
-            excluded = CSYNC_FILE_EXCLUDE_LEADING_SPACE;
         }
     }
 
@@ -385,7 +382,8 @@ bool ProcessDirectoryJob::handleExcluded(const QString &path, const Entries &ent
         case CSYNC_NOT_EXCLUDED:
         case CSYNC_FILE_SILENTLY_EXCLUDED:
         case CSYNC_FILE_EXCLUDE_AND_REMOVE:
-            qFatal("These were handled earlier");
+            qCFatal(lcDisco) << "These were handled earlier";
+            break;
         case CSYNC_FILE_EXCLUDE_LIST:
             item->_errorString = tr("File is listed on the ignore list.");
             break;
@@ -420,21 +418,21 @@ bool ProcessDirectoryJob::handleExcluded(const QString &path, const Entries &ent
         case CSYNC_FILE_EXCLUDE_TRAILING_SPACE:
             item->_errorString = tr("Filename contains trailing spaces.");
             item->_status = SyncFileItem::FileNameInvalid;
-            if (!maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
+            if (isLocal && !maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
                 item->_errorString += QStringLiteral(" %1").arg(tr("Cannot be renamed or uploaded."));
             }
             break;
         case CSYNC_FILE_EXCLUDE_LEADING_SPACE:
             item->_errorString = tr("Filename contains leading spaces.");
             item->_status = SyncFileItem::FileNameInvalid;
-            if (!maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
+            if (isLocal && !maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
                 item->_errorString += QStringLiteral(" %1").arg(tr("Cannot be renamed or uploaded."));
             }
             break;
         case CSYNC_FILE_EXCLUDE_LEADING_AND_TRAILING_SPACE:
             item->_errorString = tr("Filename contains leading and trailing spaces.");
             item->_status = SyncFileItem::FileNameInvalid;
-            if (!maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
+            if (isLocal && !maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
                 item->_errorString += QStringLiteral(" %1").arg(tr("Cannot be renamed or uploaded."));
             }
             break;
@@ -476,7 +474,7 @@ bool ProcessDirectoryJob::handleExcluded(const QString &path, const Entries &ent
             }
             item->_errorString = reasonString.isEmpty() ? errorString : QStringLiteral("%1 %2").arg(errorString, reasonString);
             item->_status = SyncFileItem::FileNameInvalidOnServer;
-            if (!maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
+            if (isLocal && !maybeRenameForWindowsCompatibility(_discoveryData->_localDir + item->_file, excluded)) {
                 item->_errorString += QStringLiteral(" %1").arg(tr("Cannot be renamed or uploaded."));
             }
             break;
@@ -535,18 +533,18 @@ void ProcessDirectoryJob::checkAndUpdateSelectiveSyncListsForE2eeFolders(const Q
 {
     bool ok = false;
 
-    const auto pathWithTrailingSpace = Utility::trailingSlashPath(path);
+    const auto pathWithTrailingSlash = Utility::trailingSlashPath(path);
 
     const auto blackListList = _discoveryData->_statedb->getSelectiveSyncList(SyncJournalDb::SelectiveSyncBlackList, &ok);
     auto blackListSet = QSet<QString>{blackListList.begin(), blackListList.end()};
-    blackListSet.insert(pathWithTrailingSpace);
+    blackListSet.insert(pathWithTrailingSlash);
     auto blackList = blackListSet.values();
     blackList.sort();
     _discoveryData->_statedb->setSelectiveSyncList(SyncJournalDb::SelectiveSyncBlackList, blackList);
 
     const auto toRemoveFromBlacklistList = _discoveryData->_statedb->getSelectiveSyncList(SyncJournalDb::SelectiveSyncE2eFoldersToRemoveFromBlacklist, &ok);
     auto toRemoveFromBlacklistSet = QSet<QString>{toRemoveFromBlacklistList.begin(), toRemoveFromBlacklistList.end()};
-    toRemoveFromBlacklistSet.insert(pathWithTrailingSpace);
+    toRemoveFromBlacklistSet.insert(pathWithTrailingSlash);
     // record it into a separate list to automatically remove from blacklist once the e2EE gets set up
     auto toRemoveFromBlacklist = toRemoveFromBlacklistSet.values();
     toRemoveFromBlacklist.sort();
@@ -670,7 +668,17 @@ void ProcessDirectoryJob::postProcessServerNew(const SyncFileItemPtr &item,
                                                const RemoteInfo &serverEntry,
                                                const SyncJournalFileRecord &dbEntry)
 {
+    const auto opts = _discoveryData->_syncOptions;
+
     if (item->isDirectory()) {
+        // Turn new remote folders into virtual folders if the option is enabled.
+        if (!localEntry.isValid() &&
+            opts._vfs->mode() == Vfs::WindowsCfApi &&
+            _pinState != PinState::AlwaysLocal &&
+            !FileSystem::isExcludeFile(item->_file)) {
+            item->_type = ItemTypeVirtualDirectory;
+        }
+
         _pendingAsyncJobs++;
         _discoveryData->checkSelectiveSyncNewFolder(path._server,
                                                     serverEntry.remotePerm,
@@ -685,14 +693,14 @@ void ProcessDirectoryJob::postProcessServerNew(const SyncFileItemPtr &item,
     }
 
     // Turn new remote files into virtual files if the option is enabled.
-    const auto opts = _discoveryData->_syncOptions;
     if (!localEntry.isValid() &&
-        item->_type == ItemTypeFile &&
         opts._vfs->mode() != Vfs::Off &&
         _pinState != PinState::AlwaysLocal &&
         !FileSystem::isExcludeFile(item->_file)) {
 
-        item->_type = ItemTypeVirtualFile;
+        if (item->_type == ItemTypeFile) {
+            item->_type = ItemTypeVirtualFile;
+        }
         if (isVfsWithSuffix()) {
             addVirtualFileSuffix(path._original);
         }
@@ -726,9 +734,13 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
     item->_etag = serverEntry.etag;
     item->_directDownloadUrl = serverEntry.directDownloadUrl;
     item->_directDownloadCookies = serverEntry.directDownloadCookies;
-    item->_e2eEncryptionStatus = serverEntry.isE2eEncrypted() ? SyncFileItem::EncryptionStatus::Encrypted : SyncFileItem::EncryptionStatus::NotEncrypted;
+    item->_e2eEncryptionStatus = serverEntry.isE2eEncrypted() ? SyncFileItem::EncryptionStatus::EncryptedMigratedV2_0 : SyncFileItem::EncryptionStatus::NotEncrypted;
     if (serverEntry.isE2eEncrypted()) {
         item->_e2eEncryptionServerCapability = EncryptionStatusEnums::fromEndToEndEncryptionApiVersion(_discoveryData->_account->capabilities().clientSideEncryptionVersion());
+    }
+    Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::Encrypted);
+    if (item->_e2eEncryptionStatusRemote != SyncFileItem::EncryptionStatus::NotEncrypted) {
+        Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::NotEncrypted);
     }
     item->_encryptedFileName = [=, this] {
         if (serverEntry.e2eMangledName.isEmpty()) {
@@ -754,29 +766,23 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
     item->_isLivePhoto = serverEntry.isLivePhoto;
     item->_livePhotoFile = serverEntry.livePhotoFile;
 
-    if (serverEntry.isValid()) {
-        item->_folderQuota.bytesUsed = serverEntry.folderQuota.bytesUsed;
-        item->_folderQuota.bytesAvailable = serverEntry.folderQuota.bytesAvailable;
-    } else {
-        item->_folderQuota.bytesUsed = -1;
-        item->_folderQuota.bytesAvailable = -1;
-    }
+    item->_folderQuota.bytesUsed = serverEntry.folderQuota.bytesUsed;
+    item->_folderQuota.bytesAvailable = serverEntry.folderQuota.bytesAvailable;
 
     // Check for missing server data
     {
-        QStringList missingData;
-        if (serverEntry.size == -1)
-            missingData.append(tr("size"));
-        if (serverEntry.remotePerm.isNull())
-            missingData.append(tr("permission"));
-        if (serverEntry.etag.isEmpty())
-            missingData.append("ETag");
-        if (serverEntry.fileId.isEmpty())
-            missingData.append(tr("file id"));
-        if (!missingData.isEmpty()) {
+        if (serverEntry.size == -1 || serverEntry.remotePerm.isNull() || serverEntry.etag.isEmpty() || serverEntry.fileId.isEmpty()) {
+            qCWarning(lcDisco) << "The response provided by the server is missing data:"
+                               << "- serverEntry.name:" << serverEntry.name
+                               << "- serverEntry.size:" << serverEntry.size
+                               << "- serverEntry.remotePerm:" << serverEntry.remotePerm
+                               << "- serverEntry.etag:" << serverEntry.etag
+                               << "- serverEntry.fileId:" << serverEntry.fileId;
+
             item->_instruction = CSYNC_INSTRUCTION_ERROR;
             _childIgnored = true;
-            item->_errorString = tr("Server reported no %1").arg(missingData.join(QLatin1String(", ")));
+            item->_errorString = serverEntry.isDirectory ? tr("Folder is not accessible on the server.", "server error")
+                                                         : tr("File is not accessible on the server.", "server error");
             emit _discoveryData->itemDiscovered(item);
             return;
         }
@@ -826,6 +832,9 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
             item->_direction = SyncFileItem::Down;
             item->_instruction = CSYNC_INSTRUCTION_SYNC;
             item->_type = ItemTypeVirtualFileDownload;
+        } else if (serverEntry.isValid() && !serverEntry.isDirectory && !serverEntry.remotePerm.isNull() && !serverEntry.remotePerm.hasPermission(RemotePermissions::CanRead)) {
+            item->_instruction = CSYNC_INSTRUCTION_REMOVE;
+            item->_direction = SyncFileItem::Down;
         } else if (dbEntry._etag != serverEntry.etag) {
             item->_direction = SyncFileItem::Down;
             item->_modtime = serverEntry.modtime;
@@ -851,9 +860,6 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
             item->_modtime = serverEntry.modtime;
             item->_size = sizeOnServer;
             item->_instruction = CSYNC_INSTRUCTION_UPDATE_METADATA;
-        } else if (serverEntry.isValid() && !serverEntry.isDirectory && !serverEntry.remotePerm.isNull() && !serverEntry.remotePerm.hasPermission(RemotePermissions::CanRead)) {
-            item->_instruction = CSYNC_INSTRUCTION_REMOVE;
-            item->_direction = SyncFileItem::Down;
         } else if (dbEntry._remotePerm != serverEntry.remotePerm || dbEntry._fileId != serverEntry.fileId || metaDataSizeNeedsUpdateForE2EeFilePlaceholder) {
             if (metaDataSizeNeedsUpdateForE2EeFilePlaceholder) {
                 // we are updating placeholder sizes after migrating from older versions with VFS + E2EE implicit hydration not supported
@@ -900,6 +906,10 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
 
     // Unknown in db: new file on the server
     Q_ASSERT(!dbEntry.isValid());
+
+    if (checkNewDeleteConflict(item)) {
+        return;
+    }
 
     item->_instruction = CSYNC_INSTRUCTION_NEW;
     item->_direction = SyncFileItem::Down;
@@ -993,7 +1003,7 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
 
         if (!base.isDirectory()) {
             csync_file_stat_t buf;
-            if (csync_vio_local_stat(_discoveryData->_localDir + originalPathAdjusted, &buf)) {
+            if (csync_vio_local_stat(_discoveryData->_localDir + originalPathAdjusted, &buf, true)) {
                 qCInfo(lcDisco) << "Local file does not exist anymore." << originalPathAdjusted;
                 return;
             }
@@ -1056,6 +1066,9 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
                 _discoveryData->findAndCancelDeletedJob(originalPath);
 
                 postProcessRename(path);
+                if (item->isDirectory() && serverEntry.isValid() && dbEntry.isValid() && serverEntry.etag == dbEntry._etag && serverEntry.remotePerm != dbEntry._remotePerm) {
+                    _queryServer = ParentNotChanged;
+                }
                 processFileFinalize(item, path, item->isDirectory(), item->_instruction == CSYNC_INSTRUCTION_RENAME ? NormalQuery : ParentDontExist, _queryServer);
             });
             job->start();
@@ -1078,38 +1091,49 @@ void ProcessDirectoryJob::processFileAnalyzeRemoteInfo(const SyncFileItemPtr &it
     processFileAnalyzeLocalInfo(item, path, localEntry, serverEntry, dbEntry, _queryServer);
 }
 
-int64_t ProcessDirectoryJob::folderQuotaAvailable(const SyncFileItemPtr &item)
+int64_t ProcessDirectoryJob::folderBytesAvailable(const SyncFileItemPtr &item, const FolderQuota::ServerEntry serverEntry) const
 {
     const auto unlimitedFreeSpace = -3;
-    if (const auto isNewItem = item->_instruction == CSYNC_INSTRUCTION_NEW;
-        _queryServer != QueryMode::InBlackList && _queryServer != QueryMode::ParentDontExist
-        && !item->isDirectory()
-        && item->_direction == SyncFileItem::Up
-        && item->_size > 0
-        && (item->_instruction == CSYNC_INSTRUCTION_SYNC || isNewItem)) {
+    const auto isTypeChange = item->_instruction == CSYNC_INSTRUCTION_TYPE_CHANGE;
+    const auto isUpdateMetadataOrRename = item->_instruction != CSYNC_INSTRUCTION_SYNC && item->_instruction != CSYNC_INSTRUCTION_NEW;
+    const auto isFileDownloadOrDirectory = item->_direction != SyncFileItem::Up || item->isDirectory();
 
-        const auto unknownFreeSpace = -2;
-        const auto bytesAvailable = _folderQuota.bytesAvailable;
+    qCDebug(lcDisco) << "Checking quota for item:" << item->_file
+                     << "isTypeChange?" << isTypeChange
+                     << "isUpdateMetadataOrRename?" << isUpdateMetadataOrRename
+                     << "isFileDownloadOrDirectory?" << isFileDownloadOrDirectory
+                     << "_dirItem?" << _dirItem
+                     << "_dirParentItem?" << _dirParentItem
+                     << "item->_size:" << item->_size
+                     << "_folderQuota.bytesAvailable:" << _folderQuota.bytesAvailable
+                     << "_folderQuota.bytesUsed:" << _folderQuota.bytesUsed;
 
-        if (!_dirItem) {
-            return bytesAvailable;
-        }
-
-        const auto isDirItemRenamed = _dirItem && _dirItem->_instruction == CSYNC_INSTRUCTION_RENAME;
-
-        // quota is unknown at this point
-        if (isDirItemRenamed && isNewItem) {
-            return unknownFreeSpace;
-        }
-
-        if (isDirItemRenamed) {
-            return bytesAvailable;
-        }
-
-        return _dirItem->_folderQuota.bytesAvailable;
+    if (item->_size == 0 || isTypeChange || isFileDownloadOrDirectory || isUpdateMetadataOrRename) {
+        qCDebug(lcDisco) << "Returning unlimited free space (-3) for item quota.";
+        return unlimitedFreeSpace;
     }
 
-    return unlimitedFreeSpace;
+    if (serverEntry == FolderQuota::ServerEntry::Valid) {
+        qCDebug(lcDisco) << "Returning cached _folderQuota.bytesAvailable for item quota.";
+        return _folderQuota.bytesAvailable;
+    }
+
+    if (!_dirItem) {
+        qCDebug(lcDisco) << "Returning unlimited free space (-3) for item quota with no _dirItem.";
+        return unlimitedFreeSpace;
+    }
+
+    qCDebug(lcDisco) << "_dirItem->_folderQuota.bytesAvailable:" << _dirItem->_folderQuota.bytesAvailable;
+
+    SyncJournalFileRecord dirItemDbRecord;
+    if (_discoveryData->_statedb->getFileRecord(_dirItem->_file, &dirItemDbRecord) && dirItemDbRecord.isValid()) {
+        const auto dirDbBytesAvailable = dirItemDbRecord._folderQuota.bytesAvailable;
+        qCDebug(lcDisco) << "Returning for item quota db value dirItemDbRecord._folderQuota.bytesAvailable" << dirDbBytesAvailable;
+        return dirDbBytesAvailable;
+    }
+
+    qCDebug(lcDisco) << "Returning _dirItem->_folderQuota.bytesAvailable for item quota.";
+    return _dirItem->_folderQuota.bytesAvailable;
 }
 
 void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
@@ -1128,7 +1152,8 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
     const auto isTypeChange = item->_instruction == CSYNC_INSTRUCTION_TYPE_CHANGE;
 
     qCDebug(lcDisco) << "File" << item->_file << "- servermodified:" << serverModified
-                     << "noServerEntry:" << noServerEntry;
+                     << "noServerEntry:" << noServerEntry
+                     << "type:" << item->_type;
 
     if (serverEntry.isValid()) {
         item->_folderQuota.bytesUsed = serverEntry.folderQuota.bytesUsed;
@@ -1174,16 +1199,20 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
             item->_status = SyncFileItem::Status::NormalError;
         }
 
-        if (const auto folderQuota = folderQuotaAvailable(item);item->_size > folderQuota && folderQuota > -1) {
-            qCDebug(lcDisco) << "Folder" << item->_file
-                             << "item used:" << item->_folderQuota.bytesUsed
-                             << "item available:" << item->_folderQuota.bytesAvailable
-                             << "- quota used: " << serverEntry.folderQuota.bytesUsed
-                             << "- quota available: " << serverEntry.folderQuota.bytesAvailable;
+        if (const auto folderQuota = folderBytesAvailable(item,
+                                                          serverEntry.isValid() ? FolderQuota::ServerEntry::Valid
+                                                                                : FolderQuota::ServerEntry::Invalid);
+            item->_size > folderQuota
+            && folderQuota > -1) {
+
+            qCInfo(lcDisco) << "Quota exceeded for item:" << item->_file
+                             << "- item bytes used:" << item->_size
+                             << "- folder bytes available: " << folderQuota;
+
             item->_instruction = CSYNC_INSTRUCTION_ERROR;
             if (_currentFolder._server.isEmpty()) {
                 item->_errorString = tr("Upload of %1 exceeds %2 of space left in personal files.").arg(Utility::octetsToString(item->_size),
-                                                                                                         Utility::octetsToString(folderQuota));
+                                                                                                        Utility::octetsToString(folderQuota));
             } else {
                 item->_errorString = tr("Upload of %1 exceeds %2 of space left in folder %3.").arg(Utility::octetsToString(item->_size),
                                                                                                    Utility::octetsToString(folderQuota),
@@ -1213,6 +1242,10 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
             if (item->isEncrypted()) {
                 item->_e2eEncryptionServerCapability = EncryptionStatusEnums::fromEndToEndEncryptionApiVersion(_discoveryData->_account->capabilities().clientSideEncryptionVersion());
             }
+            Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::Encrypted);
+            if (item->_e2eEncryptionStatusRemote != SyncFileItem::EncryptionStatus::NotEncrypted) {
+                Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::NotEncrypted);
+            }
         }
 
         if (localEntry.isPermissionsInvalid && item->_instruction == CSyncEnums::CSYNC_INSTRUCTION_NONE) {
@@ -1223,6 +1256,9 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
         item->isPermissionsInvalid = localEntry.isPermissionsInvalid;
 
         auto recurseQueryLocal = _queryLocal == ParentNotChanged ? ParentNotChanged : localEntry.isDirectory || item->_instruction == CSYNC_INSTRUCTION_RENAME ? NormalQuery : ParentDontExist;
+        if (item->isDirectory() && serverEntry.isValid() && dbEntry.isValid() && serverEntry.etag == dbEntry._etag && serverEntry.remotePerm != dbEntry._remotePerm) {
+            recurseQueryServer = ParentNotChanged;
+        }
         processFileFinalize(item, path, recurse, recurseQueryLocal, recurseQueryServer);
     };
 
@@ -1358,6 +1394,14 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
                              << "dbEntry._modtime:" << dbEntry._modtime
                              << "localEntry.modtime:" << localEntry.modtime;
             _childModified = true;
+        } else if (!serverModified &&
+                   !noServerEntry &&
+                   dbEntry._fileSize == localEntry.size &&
+                   dbEntry._modtime == localEntry.modtime &&
+                   dbEntry._inode == 0 &&
+                   localEntry.inode > 0) {
+            item->_instruction = CSYNC_INSTRUCTION_UPDATE_METADATA;
+            item->_direction = SyncFileItem::Down;
         } else {
             // Local file was changed
             item->_instruction = CSYNC_INSTRUCTION_SYNC;
@@ -1409,13 +1453,17 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
         return;
     }
 
+    if (checkNewDeleteConflict(item)) {
+        return;
+    }
+
     // New local file or rename
     item->_instruction = CSYNC_INSTRUCTION_NEW;
     item->_direction = SyncFileItem::Up;
     item->_checksumHeader.clear();
     item->_size = localEntry.size;
     item->_modtime = localEntry.modtime;
-    item->_type = localEntry.isDirectory ? ItemTypeDirectory : localEntry.isVirtualFile ? ItemTypeVirtualFile : ItemTypeFile;
+    item->_type = localEntry.isDirectory && !localEntry.isVirtualFile ? ItemTypeDirectory : localEntry.isDirectory ? ItemTypeVirtualDirectory : localEntry.isVirtualFile ? ItemTypeVirtualFile : ItemTypeFile;
     _childModified = true;
 
     if (!localEntry.caseClashConflictingName.isEmpty()) {
@@ -1511,7 +1559,7 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
     const auto isE2eeMoveOnlineOnlyItemWithCfApi = isE2eeMove && isOnlineOnlyItem;
 
     if (isE2eeMove) {
-        qCInfo(lcDisco) << "requesting permanent deletion for" << originalPath;
+        qCDebug(lcDisco) << "requesting permanent deletion for" << originalPath;
         _discoveryData->_permanentDeletionRequests.insert(originalPath);
     }
 
@@ -1529,6 +1577,13 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
             // base is a record in the SyncJournal database that contains the data about the being-renamed folder with it's old name and encryption information
             item->_e2eEncryptionStatus = EncryptionStatusEnums::fromDbEncryptionStatus(base._e2eEncryptionStatus);
             item->_e2eEncryptionServerCapability = EncryptionStatusEnums::fromEndToEndEncryptionApiVersion(_discoveryData->_account->capabilities().clientSideEncryptionVersion());
+            if (item->_e2eEncryptionStatus != item->_e2eEncryptionServerCapability) {
+                item->_e2eEncryptionStatus = item->_e2eEncryptionServerCapability;
+                if (base._e2eEncryptionStatus != SyncJournalFileRecord::EncryptionStatus::NotEncrypted) {
+                    Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::NotEncrypted);
+                }
+            }
+            Q_ASSERT(item->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::NotEncrypted);
         }
         postProcessLocalNew();
         finalize();
@@ -1638,6 +1693,9 @@ void ProcessDirectoryJob::processFileAnalyzeLocalInfo(
                 _discoveryData->findAndCancelDeletedJob(originalPath);
                 processRename(path);
                 recurseQueryServer = etag.get() == base._etag ? ParentNotChanged : NormalQuery;
+            }
+            if (item->isDirectory() && serverEntry.isValid() && dbEntry.isValid() && serverEntry.etag == dbEntry._etag && serverEntry.remotePerm != dbEntry._remotePerm) {
+                recurseQueryServer = ParentNotChanged;
             }
             processFileFinalize(item, path, item->isDirectory(), NormalQuery, recurseQueryServer);
             _pendingAsyncJobs--;
@@ -1848,6 +1906,11 @@ void ProcessDirectoryJob::processFileFinalize(
         if (item->_isRestoration && item->isDirectory())
             recurse = true;
     } else {
+        recurse = false;
+    }
+
+    if (item->_type == ItemTypeVirtualDirectory) {
+        qCDebug(lcDisco()) << "do not recurse inside a virtual folder" << item->_file;
         recurse = false;
     }
 
@@ -2124,25 +2187,6 @@ int ProcessDirectoryJob::processSubJobs(int nbJobs)
     if (_queuedJobs.empty() && _runningJobs.empty() && _pendingAsyncJobs == 0) {
         _pendingAsyncJobs = -1; // We're finished, we don't want to emit finished again
         if (_dirItem) {
-            if (_childModified && _dirItem->_instruction == CSYNC_INSTRUCTION_REMOVE) {
-                // re-create directory that has modified contents
-                _dirItem->_instruction = CSYNC_INSTRUCTION_NEW;
-
-                const auto perms = !_rootPermissions.isNull() ? _rootPermissions
-                    : _dirParentItem ? _dirParentItem->_remotePerm : _rootPermissions;
-
-                if (perms.isNull()) {
-                    // No permissions set
-                } else if (_dirItem->isDirectory() && !perms.hasPermission(RemotePermissions::CanAddSubDirectories)) {
-                    qCWarning(lcDisco) << "checkForPermission: Not allowed because you don't have permission to add subfolders to that folder: " << _dirItem->_file;
-                    _dirItem->_instruction = CSYNC_INSTRUCTION_IGNORE;
-                    _dirItem->_errorString = tr("Not allowed because you don't have permission to add subfolders to that folder");
-                    const auto localPath = QString{_discoveryData->_localDir + _dirItem->_file};
-                    emit _discoveryData->remnantReadOnlyFolderDiscovered(_dirItem);
-                }
-
-                _dirItem->_direction = _dirItem->_direction == SyncFileItem::Up ? SyncFileItem::Down : SyncFileItem::Up;
-            }
             if (_childModified && _dirItem->_instruction == CSYNC_INSTRUCTION_TYPE_CHANGE && !_dirItem->isDirectory()) {
                 // Replacing a directory by a file is a conflict, if the directory had modified children
                 _dirItem->_instruction = CSYNC_INSTRUCTION_CONFLICT;
@@ -2196,12 +2240,19 @@ bool ProcessDirectoryJob::hasVirtualFileSuffix(const QString &str) const
 
 void ProcessDirectoryJob::chopVirtualFileSuffix(QString &str) const
 {
-    if (!isVfsWithSuffix())
+    if (!isVfsWithSuffix()) {
         return;
-    bool hasSuffix = hasVirtualFileSuffix(str);
-    ASSERT(hasSuffix);
-    if (hasSuffix)
+    }
+
+    const auto hasSuffix = hasVirtualFileSuffix(str);
+    if (!hasSuffix) {
+        qCDebug(lcDisco()) << "has no suffix" << str;
+        Q_ASSERT(hasSuffix);
+    }
+
+    if (hasSuffix) {
         str.chop(_discoveryData->_syncOptions._vfs->fileSuffix().size());
+    }
 }
 
 DiscoverySingleDirectoryJob *ProcessDirectoryJob::startAsyncServerQuery()
@@ -2213,12 +2264,14 @@ DiscoverySingleDirectoryJob *ProcessDirectoryJob::startAsyncServerQuery()
                                                      _currentFolder._server,
                                                      _discoveryData->_remoteFolder,
                                                      _discoveryData->_topLevelE2eeFolderPaths,
+                                                     _dirItem ? _dirItem->_e2eEncryptionStatus : SyncFileItem::EncryptionStatus::NotEncrypted,
                                                      this);
     if (!_dirItem) {
         serverJob->setIsRootPath(); // query the fingerprint on the root
     }
 
     connect(serverJob, &DiscoverySingleDirectoryJob::etag, this, &ProcessDirectoryJob::etag);
+    connect(serverJob, &DiscoverySingleDirectoryJob::firstDirectoryFileId, this, &ProcessDirectoryJob::rootFileIdReceived);
     connect(serverJob, &DiscoverySingleDirectoryJob::setfolderQuota, this, &ProcessDirectoryJob::setFolderQuota);
     _discoveryData->_currentlyActiveJobs++;
     _pendingAsyncJobs++;
@@ -2231,12 +2284,17 @@ DiscoverySingleDirectoryJob *ProcessDirectoryJob::startAsyncServerQuery()
                 const auto alreadyDownloaded = _discoveryData->_statedb->getFileRecord(_dirItem->_file, &record) && record.isValid();
                 // we need to make sure we first download all e2ee files/folders before migrating
                 _dirItem->_isEncryptedMetadataNeedUpdate = alreadyDownloaded && serverJob->encryptedMetadataNeedUpdate();
-                _dirItem->_e2eEncryptionStatus = serverJob->currentEncryptionStatus();
+                _dirItem->_e2eEncryptionStatus = SyncFileItem::EncryptionStatus::EncryptedMigratedV2_0;
                 _dirItem->_e2eEncryptionStatusRemote = serverJob->currentEncryptionStatus();
                 _dirItem->_e2eEncryptionServerCapability = serverJob->requiredEncryptionStatus();
+                qCDebug(lcDisco()) << _dirItem->_e2eEncryptionStatus << _dirItem->_e2eEncryptionServerCapability;
+                Q_ASSERT(_dirItem->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::Encrypted);
+                Q_ASSERT(_dirItem->_e2eEncryptionStatus != SyncFileItem::EncryptionStatus::NotEncrypted);
                 _discoveryData->_anotherSyncNeeded = !alreadyDownloaded && serverJob->encryptedMetadataNeedUpdate();
             }
-            qCInfo(lcDisco) << "serverJob has finished for folder:" << _dirItem->_file << " and it has _isFileDropDetected:" << _dirItem->_isFileDropDetected;
+            qCDebug(lcDisco) << "serverJob has finished for folder:" << _dirItem->_file << " and it has _isFileDropDetected:" << _dirItem->_isFileDropDetected
+                             << "with quota bytesUsed:" << _dirItem->_folderQuota.bytesUsed
+                             << "bytesAvailable:" << _dirItem->_folderQuota.bytesAvailable;
         }
         _discoveryData->_currentlyActiveJobs--;
         _pendingAsyncJobs--;
@@ -2264,9 +2322,9 @@ DiscoverySingleDirectoryJob *ProcessDirectoryJob::startAsyncServerQuery()
                 _dirItem->_errorString = results.error().message;
                 emit this->finished();
             } else {
+                qCWarning(lcDisco) << "Error:" << results.error().message;
                 // Fatal for the root job since it has no SyncFileItem, or for the network errors
-                emit _discoveryData->fatalError(tr("Server replied with an error while reading directory \"%1\" : %2")
-                    .arg(_currentFolder._server, results.error().message), ErrorCategory::NetworkError);
+                emit _discoveryData->fatalError(results.error().message, ErrorCategory::NetworkError);
             }
         }
     });
@@ -2278,14 +2336,21 @@ DiscoverySingleDirectoryJob *ProcessDirectoryJob::startAsyncServerQuery()
 
 void ProcessDirectoryJob::setFolderQuota(const FolderQuota &folderQuota)
 {
+    qCDebug(lcDisco) << "Setting quota for folder" << _discoveryData->_localDir + _currentFolder._local
+                     << "bytes used:" << folderQuota.bytesUsed
+                     << "bytes available:" << folderQuota.bytesAvailable;
     _folderQuota.bytesUsed = folderQuota.bytesUsed;
     _folderQuota.bytesAvailable = folderQuota.bytesAvailable;
+
+    if (_currentFolder._original.isEmpty()) {
+        emit updatedRootFolderQuota(_folderQuota.bytesUsed, _folderQuota.bytesAvailable);
+    }
 }
 
 void ProcessDirectoryJob::startAsyncLocalQuery()
 {
     QString localPath = _discoveryData->_localDir + _currentFolder._local;
-    auto localJob = new DiscoverySingleLocalDirectoryJob(_discoveryData->_account, localPath, _discoveryData->_syncOptions._vfs.data());
+    auto localJob = new DiscoverySingleLocalDirectoryJob(_discoveryData->_account, localPath, _discoveryData->_syncOptions._vfs.data(), _discoveryData->_fileSystemReliablePermissions);
 
     _discoveryData->_currentlyActiveJobs++;
     _pendingAsyncJobs++;
@@ -2403,11 +2468,39 @@ bool ProcessDirectoryJob::maybeRenameForWindowsCompatibility(const QString &abso
     case CSYNC_FILE_EXCLUDE_LEADING_SPACE:
     case CSYNC_FILE_EXCLUDE_TRAILING_SPACE:
     {
-        const auto renameTarget = QString{fileInfo.absolutePath() + QStringLiteral("/") + fileInfo.fileName().trimmed()};
+        const auto removeTrailingSpaces = [] (QString string) -> QString {
+            for (int n = string.size() - 1; n >= 0; -- n) {
+                if (!string.at(n).isSpace()) {
+                    string.truncate(n + 1);
+                    break;
+                }
+            }
+
+            return string;
+        };
+
+        auto fileNameWithoutTrailingSpace = removeTrailingSpaces(fileInfo.fileName());
+        const auto renameTarget = QString{fileInfo.absolutePath() + QStringLiteral("/") + fileNameWithoutTrailingSpace};
+        qDebug() << fileInfo.fileName() << fileNameWithoutTrailingSpace << renameTarget;
         result = FileSystem::rename(absoluteFileName, renameTarget);
         break;
     }
     }
     return result;
 }
+
+bool ProcessDirectoryJob::checkNewDeleteConflict(const SyncFileItemPtr &item) const
+{
+    if (_discoveryData->recursiveCheckForDeletedParents(item->_file)) {
+        qCWarning(lcDisco) << "Removing local file inside a remotely deleted folder" << item->_file;
+        item->_instruction = CSYNC_INSTRUCTION_REMOVE;
+        item->_direction = SyncFileItem::Down;
+        item->_wantsSpecificActions = SyncFileItem::SynchronizationOptions::MoveToClientTrashBin;
+        emit _discoveryData->itemDiscovered(item);
+        return true;
+    }
+
+    return false;
+}
+
 }

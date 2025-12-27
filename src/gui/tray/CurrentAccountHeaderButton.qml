@@ -12,6 +12,7 @@ import "../filedetails/"
 
 import Style
 import com.nextcloud.desktopclient
+import com.nextcloud.desktopclient as NC
 
 Button {
     id: root
@@ -53,12 +54,14 @@ Button {
         x: (root.x + 2)
         y: (root.y + Style.trayWindowHeaderHeight + 2)
 
-        width: (Style.rootWidth - 2)
+        property real widestMenuItemWidth: 0
+        property real maximumWidthAllowed: trayWindowHeader.width - (root.x + 4)
+        width: Math.min( widestMenuItemWidth + leftPadding + rightPadding, maximumWidthAllowed )
         height: Math.min(implicitHeight, maxMenuHeight)
         closePolicy: Menu.CloseOnPressOutsideParent | Menu.CloseOnEscape
 
         onClosed: {
-            // HACK: reload account Instantiator immediately by restting it - could be done better I guess
+            // HACK: reload account Instantiator immediately by resetting it - could be done better I guess
             // see also onVisibleChanged above
             userLineInstantiator.active = false;
             userLineInstantiator.active = true;
@@ -68,29 +71,74 @@ Button {
             id: userLineInstantiator
             model: UserModel
             delegate: MenuItem {
-                implicitHeight: instantiatedUserLine.height + Style.standardSpacing
+                implicitHeight: instantiatedUserLine.height
                 UserLine {
                     id: instantiatedUserLine
-                    width: parent.width
+                    width: Math.min(accountMenu.widestMenuItemWidth, accountMenu.maximumWidthAllowed)
+
+                    Component.onCompleted: {
+                        instantiatedUserLine.updateMenuWidth()
+                    }
+
+                    onImplicitWidthChanged: {
+                        instantiatedUserLine.updateMenuWidth()
+                    }
+
+                    Connections {
+                        target: model
+                        function onNameChanged() {
+                            instantiatedUserLine.updateMenuWidth()
+                        }
+
+                        function onStatusChanged() {
+                            instantiatedUserLine.updateMenuWidth()
+                        }
+                    }
+
                     onShowUserStatusSelector: {
                         userStatusDrawer.openUserStatusDrawer(model.index);
                         accountMenu.close();
                     }
+                    onShowUserStatusMessageSelector: {
+                        userStatusDrawer.openUserStatusMessageDrawer(model.index);
+                        accountMenu.close();
+                    }
                     onClicked: UserModel.currentUserId = model.index;
+
+                    function updateMenuWidth()
+                    {
+                        accountMenu.widestMenuItemWidth = Math.max( instantiatedUserLine.implicitWidth, accountMenu.widestMenuItemWidth )
+                    }
                 }
             }
-            onObjectAdded: accountMenu.insertItem(index, object)
-            onObjectRemoved: accountMenu.removeItem(object)
+            onObjectAdded: function(index, object) {
+                accountMenu.insertItem(index, object)
+            }
+            onObjectRemoved: function(index, object) {
+                accountMenu.removeItem(object)
+            }
         }
 
         MenuItem {
             id: addAccountButton
             hoverEnabled: true
             visible: Systray.enableAddAccount
+            implicitHeight: Style.trayWindowHeaderHeight
 
-            icon.source: "image://svgimage-custom-color/add.svg/" + palette.windowText
-            icon.width: Style.accountAvatarSize
-            text: qsTr("Add account") 
+            readonly property real addAccountIconSize: Style.accountAvatarSize * Style.smallIconScaleFactor
+            readonly property real addAccountHorizontalOffset: ( (Style.accountAvatarSize - addAccountIconSize) / 2 ) + Style.accountIconsMenuMargin
+            property var iconColor: !addAccountButton.enabled
+                                    ? addAccountButton.palette.mid
+                                    : ((addAccountButton.highlighted || addAccountButton.down) && Qt.platform.os !== "windows"
+                                        ? addAccountButton.palette.highlightedText
+                                        : addAccountButton.palette.text)
+
+            icon.source: "image://svgimage-custom-color/add.svg/" + iconColor
+            icon.width: addAccountIconSize
+            icon.height: addAccountIconSize
+            leftPadding: addAccountHorizontalOffset
+            spacing: Style.userLineSpacing
+            text: qsTr("Add account")
             onClicked: UserModel.addAccount()
 
             Accessible.role: Accessible.MenuItem
@@ -111,6 +159,19 @@ Button {
             Accessible.role: Accessible.MenuItem
             Accessible.name: Systray.syncIsPaused ? qsTr("Resume sync for all") : qsTr("Pause sync for all")
             Accessible.onPressAction: syncPauseButton.clicked()
+
+            contentItem: Text {
+                text: parent.text
+                horizontalAlignment: Text.AlignLeft
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Style.userLineSpacing
+                elide: Text.ElideRight
+                color: !parent.enabled
+                    ? parent.palette.mid
+                    : ((parent.highlighted || parent.down) && Qt.platform.os !== "windows"
+                        ? parent.palette.highlightedText
+                        : parent.palette.text)
+            }
         }
 
         MenuItem {
@@ -122,6 +183,19 @@ Button {
             Accessible.role: Accessible.MenuItem
             Accessible.name: text
             Accessible.onPressAction: settingsButton.clicked()
+
+            contentItem: Text {
+                text: parent.text
+                horizontalAlignment: Text.AlignLeft
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Style.userLineSpacing
+                elide: Text.ElideRight
+                color: !parent.enabled
+                    ? parent.palette.mid
+                    : ((parent.highlighted || parent.down) && Qt.platform.os !== "windows"
+                        ? parent.palette.highlightedText
+                        : parent.palette.text)
+            }
         }
 
         MenuItem {
@@ -132,7 +206,20 @@ Button {
             onClicked: Systray.shutdown()
             Accessible.role: Accessible.MenuItem
             Accessible.name: text
-            Accessible.onPressAction: exitButton.clicked() 
+            Accessible.onPressAction: exitButton.clicked()
+
+            contentItem: Text {
+                text: parent.text
+                horizontalAlignment: Text.AlignLeft
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Style.userLineSpacing
+                elide: Text.ElideRight
+                color: !parent.enabled
+                    ? parent.palette.mid
+                    : ((parent.highlighted || parent.down) && Qt.platform.os !== "windows"
+                        ? parent.palette.highlightedText
+                        : parent.palette.text)
+            }
         }
     }
 
@@ -160,11 +247,11 @@ Button {
                 id: currentAccountStatusIndicatorBackground
                 visible: UserModel.currentUser && UserModel.currentUser.isConnected
                          && UserModel.currentUser.serverHasUserStatus
-                         && UserModel.currentUser.status !== UserStatus.Invisible
-                         && UserModel.currentUser.status !== UserStatus.Offline
-                width: Style.accountAvatarStateIndicatorSize +  + Style.trayFolderStatusIndicatorSizeOffset
+                         && UserModel.currentUser.status !== NC.userStatus.Invisible
+                         && UserModel.currentUser.status !== NC.userStatus.Offline
+                width: Style.accountAvatarStateIndicatorSize + Style.trayFolderStatusIndicatorSizeOffset
                 height: width
-                color: root.parentBackgroundColor
+                color: "white"
                 anchors.bottom: currentAccountAvatar.bottom
                 anchors.right: currentAccountAvatar.right
                 radius: width * Style.trayFolderStatusIndicatorRadiusFactor
@@ -174,12 +261,12 @@ Button {
                 id: currentAccountStatusIndicator
                 visible: UserModel.currentUser && UserModel.currentUser.isConnected
                          && UserModel.currentUser.serverHasUserStatus
-                         && UserModel.currentUser.status !== UserStatus.Invisible
-                         && UserModel.currentUser.status !== UserStatus.Offline
+                         && UserModel.currentUser.status !== NC.userStatus.Invisible
+                         && UserModel.currentUser.status !== NC.userStatus.Offline
                 source: UserModel.currentUser ? UserModel.currentUser.statusIcon : ""
                 cache: false
-                x: currentAccountStatusIndicatorBackground.x + 1
-                y: currentAccountStatusIndicatorBackground.y + 1
+                x: currentAccountStatusIndicatorBackground.x + Style.trayFolderStatusIndicatorSizeOffset / 2
+                y: currentAccountStatusIndicatorBackground.y + Style.trayFolderStatusIndicatorSizeOffset / 2
                 sourceSize.width: Style.accountAvatarStateIndicatorSize
                 sourceSize.height: Style.accountAvatarStateIndicatorSize
 

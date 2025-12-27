@@ -75,7 +75,7 @@ public:
         ShareTypeLink = Share::TypeLink,
         ShareTypeEmail = Share::TypeEmail,
         ShareTypeRemote = Share::TypeRemote,
-        ShareTypeCircle = Share::TypeCircle,
+        ShareTypeTeam = Share::TypeTeam,
         ShareTypeRoom = Share::TypeRoom,
         ShareTypePlaceholderLink = Share::TypePlaceholderLink,
         ShareTypeInternalLink = Share::TypeInternalLink,
@@ -219,7 +219,7 @@ private slots:
     void slotShareNameSet(const QString &shareId);
     void slotShareLabelSet(const QString &shareId);
     void slotShareExpireDateSet(const QString &shareId);
-    void slotDeleteE2EeShare(const SharePtr &share) const;
+    void slotDeleteE2EeShare(const OCC::SharePtr &share) const;
 
 private:
     [[nodiscard]] QString displayStringForShare(const SharePtr &share, bool verbose = false) const;

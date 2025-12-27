@@ -126,14 +126,7 @@ SettingsDialog::SettingsDialog(ownCloudGui *gui, QWidget *parent)
     connect(AccountManager::instance(), &AccountManager::capabilitiesChanged, generalSettings, &GeneralSettings::loadUpdateChannelsList);
 #endif
 
-    QAction *networkAction = createColorAwareAction(QLatin1String(":/client/theme/network.svg"), tr("Network"));
-    _actionGroup->addAction(networkAction);
-    _toolBar->addAction(networkAction);
-    auto *networkSettings = new NetworkSettings;
-    _ui->stack->addWidget(networkSettings);
-
     _actionGroupWidgets.insert(generalAction, generalSettings);
-    _actionGroupWidgets.insert(networkAction, networkSettings);
 
     const auto accountsList = AccountManager::instance()->accounts();
     for (const auto &account : accountsList) {
@@ -156,7 +149,7 @@ SettingsDialog::SettingsDialog(ownCloudGui *gui, QWidget *parent)
 
     customizeStyle();
 
-    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
+    setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint & Qt::Window);
     cfg.restoreGeometry(this);
 }
 
@@ -342,7 +335,8 @@ void SettingsDialog::customizeStyle()
     QString background(palette().base().color().name());
     _toolBar->setStyleSheet(TOOLBAR_CSS().arg(background, dark, highlightColor, highlightTextColor));
 
-    for (const auto a : _actionGroup->actions()) {
+    const auto &allActions = _actionGroup->actions();
+    for (const auto a : allActions) {
         QIcon icon = Theme::createColorAwareIcon(a->property("iconPath").toString(), palette());
         a->setIcon(icon);
         auto *btn = qobject_cast<QToolButton *>(_toolBar->widgetForAction(a));

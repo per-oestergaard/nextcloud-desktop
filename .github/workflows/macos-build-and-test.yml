@@ -1,74 +1,93 @@
-# SPDX-FileCopyrightText: 2023 Nextcloud GmbH and Nextcloud contributors
+# SPDX-FileCopyrightText: 2025 Nextcloud GmbH and Nextcloud contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
+
 name: macOS Build and Test
+
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_call:
+    inputs:
+      CRAFT_TARGET:
+        type: string
+        required: true
+      CRAFT_MASTER_LOCATION:
+        type: string
+        required: true
+      CRAFT_MASTER_CONFIG:
+        type: string
+        required: true
+      PYTHON_VERSION:
+        type: string
+        required: true
+      buildFileProviderModule:
+        type: string
+        required: true
+
 jobs:
   build:
-    name: macOS Build and Test
+    name: Build nextcloud-client
     timeout-minutes: 60
-    runs-on: macos-15
-    strategy:
-        matrix:
-          craft_options: [
-            '--options nextcloud-client.buildFileProviderModule=False',
-            '--options nextcloud-client.buildFileProviderModule=True'
-          ]
-    env:
-      CRAFT_TARGET: macos-clang-arm64
-      CRAFT_MASTER_LOCATION: ${{ github.workspace }}/CraftMaster
-      CRAFT_MASTER_CONFIG: ${{ github.workspace }}/craftmaster.ini
-      CRAFT_BLUEPRINT_OPTIONS: ${{ matrix.craft_options }}
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           fetch-depth: 1
 
-      - name: List Xcode installations
-        run: sudo ls -1 /Applications | grep "Xcode"
-        
-      - name: Select Xcode 16.2
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Restore cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
         with:
-          path: ~/cache
-          key: macos-latest-${{ env.CRAFT_TARGET }}
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+          xcode-version: latest-stable
+      
+      - name: Show Swift version
+        run: swift --version
+      
+      - name: Set up Python ${{ inputs.PYTHON_VERSION }}
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
         with:
-          python-version: 3.12
+          python-version: ${{ inputs.PYTHON_VERSION }}
 
       - name: Install Homebrew dependencies
         run: |
           brew install homebrew/cask/inkscape
 
-      - name: Download Craft
-        run: |
-          git clone -q --depth=1 https://invent.kde.org/ggadinger/craftmaster.git ${{ env.CRAFT_MASTER_LOCATION }}
+      - name: Restore cached Craft directories
+        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ${{ inputs.CRAFT_MASTER_LOCATION }}
+            ${{ github.workspace }}/craft-clone
+            ${{ github.workspace }}/${{ inputs.CRAFT_TARGET }}
+          key: ${{ runner.os }}-craft-${{ hashFiles(inputs.CRAFT_MASTER_CONFIG) }}
 
-      - name: Add required blueprint repositories
+      - name: Build nextcloud-client
         run: |
-          python "${{ env.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --add-blueprint-repository "https://github.com/nextcloud/craft-blueprints-kde.git|stable-3.17|"
-          python "${{ env.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --add-blueprint-repository "https://github.com/nextcloud/desktop-client-blueprints.git|stable-3.17|"
+          python "${{ inputs.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ inputs.CRAFT_MASTER_CONFIG }}" --target ${{ inputs.CRAFT_TARGET }} -c --options nextcloud-client.srcDir=${{ github.workspace }} --options nextcloud-client.buildFileProviderModule=${{ inputs.buildFileProviderModule }} nextcloud-client
 
-      - name: Setup Craft
-        run: |
-          python "${{ env.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c craft
+      - name: Cache Craft directories containing the built client
+        uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ${{ inputs.CRAFT_MASTER_LOCATION }}
+            ${{ github.workspace }}/craft-clone
+            ${{ github.workspace }}/${{ inputs.CRAFT_TARGET }}
+          key: ${{ runner.os }}-craft-build-${{ github.sha }}-${{ inputs.buildFileProviderModule }}
 
-      - name: Install Craft Nextcloud client dependencies
-        run: |
-          python "${{ env.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --install-deps nextcloud-client
 
-      - name: Build client
-        run: |
-          python "${{ env.CRAFT_MASTER_LOCATION }}/CraftMaster.py" --config "${{ env.CRAFT_MASTER_CONFIG }}" --target ${{ env.CRAFT_TARGET }} -c --options nextcloud-client.srcDir=${{ github.workspace }} ${{ env.CRAFT_BLUEPRINT_OPTIONS }} nextcloud-client
+  test:
+    name: Run tests
+    needs: build
+    timeout-minutes: 60
+    runs-on: macos-latest
+    steps:
+      - name: Restore cached Craft directories containing the built client
+        uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ${{ inputs.CRAFT_MASTER_LOCATION }}
+            ${{ github.workspace }}/craft-clone
+            ${{ github.workspace }}/${{ inputs.CRAFT_TARGET }}
+          key: ${{ runner.os }}-craft-build-${{ github.sha }}-${{ inputs.buildFileProviderModule }}
 
       - name: Run tests
         run: |
-          cd ${{ github.workspace }}/${{ env.CRAFT_TARGET }}/build/nextcloud-client/work/build
+          cd ${{ github.workspace }}/${{ inputs.CRAFT_TARGET }}/build/nextcloud-client/work/build
           ctest --output-on-failure --output-junit testResult.xml
-

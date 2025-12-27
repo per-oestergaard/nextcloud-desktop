@@ -128,6 +128,13 @@ public:
     [[nodiscard]] QString shortGuiRemotePathOrAppName() const; // since 2.0 we don't want to show aliases anymore, show the path instead
 
     /**
+     * Returns the display name used for the sidebar entry.
+     * If more than one account is configured the returned string includes
+     * account details as well.
+     */
+    [[nodiscard]] QString sidebarDisplayName() const;
+
+    /**
      * short local path to display on the GUI  (native separators)
      */
     [[nodiscard]] QString shortGuiLocalPath() const;
@@ -309,6 +316,9 @@ public:
     void blacklistPath(const QString &path);
     void migrateBlackListPath(const QString &legacyPath);
 
+    /// whether the current folder contains any of the passed fileIds
+    [[nodiscard]] bool hasFileIds(const QList<qint64>& fileIds) const;
+
 signals:
     void syncStateChange();
     void syncStarted();
@@ -421,6 +431,8 @@ private slots:
     void slotRunEtagJob();
     void etagRetrieved(const QByteArray &, const QDateTime &tp);
     void etagRetrievedFromSyncEngine(const QByteArray &, const QDateTime &time);
+
+    void rootFileIdReceivedFromSyncEngine(qint64 fileId);
 
     void slotEmitFinishedDelayed();
 
@@ -578,6 +590,9 @@ private:
     QMetaObject::Connection _officeFileLockReleaseUnlockFailure;
     QMetaObject::Connection _fileLockSuccess;
     QMetaObject::Connection _fileLockFailure;
+
+    /// The remote file ID of the current folder.
+    qint64 _rootFileId = 0;
 };
 }
 

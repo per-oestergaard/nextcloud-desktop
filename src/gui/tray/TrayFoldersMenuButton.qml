@@ -53,6 +53,7 @@ HeaderButton {
 
     ToolTip {
         id: tooltip
+        popupType: Qt.platform.os === "windows" ? Popup.Item : Popup.Native
         visible: root.hovered && !foldersMenuLoader.isMenuVisible
         text: root.userHasGroupFolders ? qsTr("Open local or group folders") : qsTr("Open local folder")
     }
@@ -69,33 +70,6 @@ HeaderButton {
 
             implicitWidth: openLocalFolderButtonCaretIconLoader.active ? openLocalFolderButtonIcon.width + openLocalFolderButtonCaretIconLoader.width : openLocalFolderButtonIcon.width
             implicitHeight: openLocalFolderButtonIcon.height
-
-            Image {
-                id: folderStateIndicator
-                visible: root.currentUser.hasLocalFolder
-                source: root.currentUser.isConnected ? Style.stateOnlineImageSource : Style.stateOfflineImageSource
-                cache: false
-
-                anchors.bottom: openLocalFolderButtonIcon.bottom
-                anchors.bottomMargin: Style.trayFoldersMenuButtonStateIndicatorBottomOffset
-                anchors.right: openLocalFolderButtonIcon.right
-                sourceSize.width: Style.folderStateIndicatorSize
-                sourceSize.height: Style.folderStateIndicatorSize
-
-                Accessible.role: Accessible.Indicator
-                Accessible.name: root.currentUser.isConnected ? qsTr("Connected") : qsTr("Disconnected")
-                z: 1
-
-                Rectangle {
-                    id: folderStateIndicatorBackground
-                    width: Style.folderStateIndicatorSize + Style.trayFolderStatusIndicatorSizeOffset
-                    height: width
-                    color: root.parentBackgroundColor
-                    anchors.centerIn: parent
-                    radius: width * Style.trayFolderStatusIndicatorRadiusFactor
-                    z: -1
-                }
-            }
 
             Image {
                 id: openLocalFolderButtonIcon

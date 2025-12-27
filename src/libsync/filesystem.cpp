@@ -22,6 +22,7 @@
 
 #ifdef Q_OS_WIN
 #include <securitybaseapi.h>
+#include <aclapi.h>
 #include <sddl.h>
 #endif
 
@@ -176,7 +177,7 @@ time_t FileSystem::getModTime(const QString &filename)
 {
     csync_file_stat_t stat;
     time_t result = -1;
-    if (csync_vio_local_stat(filename, &stat) != -1 && (stat.modtime != 0)) {
+    if (csync_vio_local_stat(filename, &stat, true) != -1 && (stat.modtime != 0)) {
         result = stat.modtime;
     } else {
         result = Utility::qDateTimeToTime_t(QFileInfo(filename).lastModified());
@@ -188,6 +189,11 @@ time_t FileSystem::getModTime(const QString &filename)
 
 bool FileSystem::setModTime(const QString &filename, time_t modTime)
 {
+#ifdef Q_OS_WINDOWS
+    // the access denied ACEs also prevents us from changing the modtime -> make it writable if needed
+    FilePermissionsRestore restore(filename, FileSystem::FolderPermissions::ReadWrite);
+#endif
+
     int rc = c_utimes(filename, modTime);
     if (rc != 0) {
         qCWarning(lcFileSystem) << "Error setting mtime for" << filename
@@ -225,7 +231,7 @@ static qint64 getSizeWithCsync(const QString &filename)
 {
     qint64 result = 0;
     csync_file_stat_t stat;
-    if (csync_vio_local_stat(filename, &stat) != -1) {
+    if (csync_vio_local_stat(filename, &stat, true) != -1) {
         result = stat.size;
     } else {
         qCWarning(lcFileSystem) << "Could not get size for" << filename << "with csync" << Utility::formatWinError(errno);
@@ -246,7 +252,11 @@ qint64 FileSystem::getSize(const QString &filename)
 }
 
 // Code inspired from Qt5's QDir::removeRecursively
-bool FileSystem::removeRecursively(const QString &path, const std::function<void(const QString &path, bool isDir)> &onDeleted, QStringList *errors, const std::function<void(const QString &path, bool isDir)> &onError)
+bool FileSystem::removeRecursively(const QString &path,
+                                   const std::function<void(const QString &path, bool isDir)> &onDeleted,
+                                   QStringList *errors,
+                                   const std::function<void(const QString &path, bool isDir)> &onError,
+                                   const std::function<bool (const QString &, QString*)> &customDeleteFunction)
 {
     if (!FileSystem::setFolderPermissions(path, FileSystem::FolderPermissions::ReadWrite)) {
         if (onError) {
@@ -265,15 +275,18 @@ bool FileSystem::removeRecursively(const QString &path, const std::function<void
         // we never want to go into this branch for .lnk files
         bool isDir = FileSystem::isDir(fi.absoluteFilePath()) && !FileSystem::isSymLink(fi.absoluteFilePath()) && !FileSystem::isJunction(fi.absoluteFilePath());
         if (isDir) {
-            removeOk = removeRecursively(path + QLatin1Char('/') + di.fileName(), onDeleted, errors, onError); // recursive
+            removeOk = removeRecursively(joinPath(path, di.fileName()), onDeleted, errors, onError, customDeleteFunction); // recursive
         } else {
             QString removeError;
 
             const auto fileInfo = QFileInfo{di.filePath()};
             const auto parentFolderPath = fileInfo.dir().absolutePath();
             const auto parentPermissionsHandler = FileSystem::FilePermissionsRestore{parentFolderPath, FileSystem::FolderPermissions::ReadWrite};
-            removeOk = FileSystem::remove(di.filePath(), &removeError);
-            qCInfo(lcFileSystem()) << "delete" << di.filePath();
+            if (customDeleteFunction) {
+                removeOk = customDeleteFunction(di.filePath(), &removeError);
+            } else {
+                removeOk = FileSystem::remove(di.filePath(), &removeError);
+            }
             if (removeOk) {
                 if (onDeleted)
                     onDeleted(di.filePath(), false);
@@ -316,7 +329,6 @@ bool FileSystem::removeRecursively(const QString &path, const std::function<void
             allRemoved = false;
         }
 
-        qCInfo(lcFileSystem()) << "delete" << path;
         if (allRemoved) {
             if (onDeleted)
                 onDeleted(path, true);
@@ -337,7 +349,7 @@ bool FileSystem::removeRecursively(const QString &path, const std::function<void
 bool FileSystem::getInode(const QString &filename, quint64 *inode)
 {
     csync_file_stat_t fs;
-    if (csync_vio_local_stat(filename, &fs) == 0) {
+    if (csync_vio_local_stat(filename, &fs, true) == 0) {
         *inode = fs.inode;
         return true;
     }
@@ -358,18 +370,19 @@ bool FileSystem::setFolderPermissions(const QString &path,
     // current read-only folder ACL needs to be removed from files also when making a folder read-write
     // we currently have a too limited set of authorization for files when applying the restrictive ACL for folders on the child files
     setFileReadOnly(path, permissions == FileSystem::FolderPermissions::ReadOnly);
-    setAclPermission(path, permissions, permissions == FileSystem::FolderPermissions::ReadWrite ? true : false);
+    setAclPermission(path, permissions);
 
     permissionsDidChange = true;
 #else
-    static constexpr auto writePerms = std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
     const auto stdStrPath = path.toStdWString();
-
-    const auto currentPermissions = std::filesystem::status(stdStrPath).permissions();
-    qCDebug(lcFileSystem()).nospace() << "current permissions path=" << path << " perms=" << Qt::showbase << Qt::oct << static_cast<int>(currentPermissions);
 
     try
     {
+        static constexpr auto writePerms = std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
+
+        const auto currentPermissions = std::filesystem::status(stdStrPath).permissions();
+        qCDebug(lcFileSystem()).nospace() << "current permissions path=" << path << " perms=" << Qt::showbase << Qt::oct << static_cast<int>(currentPermissions);
+
         switch (permissions) {
         case OCC::FileSystem::FolderPermissions::ReadOnly: {
             qCDebug(lcFileSystem()).nospace() << "ensuring folder is read only path=" << path;
@@ -418,8 +431,25 @@ bool FileSystem::setFolderPermissions(const QString &path,
     }
 
     if (permissionsDidChange) {
-        const auto newPermissions = std::filesystem::status(stdStrPath).permissions();
-        qCDebug(lcFileSystem()).nospace() << "updated permissions path=" << path << " perms=" << Qt::showbase << Qt::oct << static_cast<int>(newPermissions);
+        try {
+            const auto newPermissions = std::filesystem::status(stdStrPath).permissions();
+            qCDebug(lcFileSystem()).nospace() << "updated permissions path=" << path << " perms=" << Qt::showbase << Qt::oct << static_cast<int>(newPermissions);
+        }
+        catch (const std::filesystem::filesystem_error &e)
+        {
+            qCWarning(lcFileSystem()) << "exception when querying folder permissions" << e.what() << "- path1:" << e.path1().c_str() << "- path2:" << e.path2().c_str();
+            return false;
+        }
+        catch (const std::system_error &e)
+        {
+            qCWarning(lcFileSystem()) << "exception when querying folder permissions" << e.what() << "- path:" << stdStrPath;
+            return false;
+        }
+        catch (...)
+        {
+            qCWarning(lcFileSystem()) << "exception when querying folder permissions -  path:" << stdStrPath;
+            return false;
+        }
     }
 #endif
 
@@ -433,62 +463,58 @@ bool FileSystem::setFolderPermissions(const QString &path,
 bool FileSystem::isFolderReadOnly(const std::filesystem::path &path) noexcept
 {
 #ifdef Q_OS_WIN
-    qCInfo(lcFileSystem()) << "is it read-only folder:" << QString::fromStdWString(path.wstring());
-
-    SECURITY_INFORMATION info = DACL_SECURITY_INFORMATION;
-    std::unique_ptr<char[]> securityDescriptor;
-    auto neededLength = 0ul;
-
-    if (!GetFileSecurityW(path.wstring().c_str(), info, nullptr, 0, &neededLength)) {
-        const auto lastError = GetLastError();
-        if (lastError != ERROR_INSUFFICIENT_BUFFER) {
-            qCWarning(lcFileSystem) << "error when calling GetFileSecurityW" << path << lastError;
-            return false;
-        }
-
-        securityDescriptor.reset(new char[neededLength]);
-
-        if (!GetFileSecurityW(path.wstring().c_str(), info, securityDescriptor.get(), neededLength, &neededLength)) {
-            qCWarning(lcFileSystem) << "error when calling GetFileSecurityW" << path << GetLastError();
-            return false;
-        }
-    }
-
-    int daclPresent = false, daclDefault = false;
+    Utility::UniqueHandle fileHandle;
+    constexpr SECURITY_INFORMATION securityInfo = DACL_SECURITY_INFORMATION | READ_CONTROL;
     PACL resultDacl = nullptr;
-    if (!GetSecurityDescriptorDacl(securityDescriptor.get(), &daclPresent, &resultDacl, &daclDefault)) {
-        qCWarning(lcFileSystem) << "error when calling GetSecurityDescriptorDacl" << path << GetLastError();
-        return false;
-    }
-    if (!daclPresent || !resultDacl) {
-        qCWarning(lcFileSystem) << "error when calling DACL needed to set a folder read-only or read-write is missing" << path;
+    Utility::UniqueLocalFree<PSECURITY_DESCRIPTOR> securityDescriptor;
+
+    const auto longPath = longWinPath(QString::fromStdWString(path.wstring()));
+    const auto rawLongPath = reinterpret_cast<const wchar_t *>(longPath.utf16());
+    qCDebug(lcFileSystem()).nospace() << "Checking whether folder is read only, path=" << longPath;
+
+    // CreateFileW is known to work with long paths in the \\?\ variant
+    constexpr DWORD desiredAccess = READ_CONTROL;
+    constexpr DWORD shareMode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    constexpr DWORD creationDisposition = OPEN_EXISTING;
+    constexpr DWORD flagsAndAttributes = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_OPEN_NO_RECALL;
+    fileHandle.reset(CreateFileW(rawLongPath, desiredAccess, shareMode, nullptr, creationDisposition, flagsAndAttributes, nullptr));
+
+    if (fileHandle.get() == INVALID_HANDLE_VALUE) {
+        qCWarning(lcFileSystem).nospace() << "CreateFileW failed, path=" << longPath << " errorMessage=" << Utility::formatWinError(GetLastError());
         return false;
     }
 
-    PSID sid = nullptr;
-    if (!ConvertStringSidToSidW(L"S-1-5-32-545", &sid))
     {
-        qCWarning(lcFileSystem) << "error when calling ConvertStringSidToSidA" << path << GetLastError();
+        PSECURITY_DESCRIPTOR securityDescriptorUnmanaged = nullptr;
+        if (const auto lastError = GetSecurityInfo(fileHandle.get(), SE_FILE_OBJECT, securityInfo, nullptr, nullptr, &resultDacl, nullptr, &securityDescriptorUnmanaged); lastError != ERROR_SUCCESS) {
+            qCWarning(lcFileSystem).nospace() << "GetSecurityInfo failed, path=" << longPath << " errorMessage=" << Utility::formatWinError(lastError);
+            return false;
+        }
+        securityDescriptor.reset(securityDescriptorUnmanaged);
+    }
+
+    if (!resultDacl) {
+        qCWarning(lcFileSystem).nospace() << "failed to retrieve DACL needed to figure out whether a folder is read-only, path=" << longPath;
         return false;
     }
 
     ACL_SIZE_INFORMATION aclSize;
     if (!GetAclInformation(resultDacl, &aclSize, sizeof(aclSize), AclSizeInformation)) {
-        qCWarning(lcFileSystem) << "error when calling GetAclInformation" << path << GetLastError();
+        qCWarning(lcFileSystem).nospace() << "GetAclInformation failed, path=" << longPath << " errorMessage=" << Utility::formatWinError(GetLastError());
         return false;
     }
 
     for (int i = 0; i < aclSize.AceCount; ++i) {
         void *currentAce = nullptr;
         if (!GetAce(resultDacl, i, &currentAce)) {
-            qCWarning(lcFileSystem) << "error when calling GetAce" << path << GetLastError();
+            qCWarning(lcFileSystem).nospace() << "GetAce failed, path=" << longPath << " errorMessage=" << Utility::formatWinError(GetLastError());
             return false;
         }
 
         const auto currentAceHeader = reinterpret_cast<PACE_HEADER>(currentAce);
 
         if ((ACCESS_DENIED_ACE_TYPE == (currentAceHeader->AceType & ACCESS_DENIED_ACE_TYPE))) {
-            qCInfo(lcFileSystem()) << "detected access denied ACL: assuming read-only folder:" << QString::fromStdWString(path.wstring());
+            qCInfo(lcFileSystem()).nospace() << "Detected access denied ACL: assuming read-only, path=" << longPath;
             return true;
         }
     }
@@ -526,8 +552,8 @@ FileSystem::FilePermissionsRestore::FilePermissionsRestore(const QString &path, 
     {
         const auto &stdStrPath = _path.toStdWString();
         const auto fsPath = std::filesystem::path{stdStrPath};
-        if ((temporaryPermissions == OCC::FileSystem::FolderPermissions::ReadOnly && !FileSystem::isFolderReadOnly(fsPath)) ||
-            (temporaryPermissions == OCC::FileSystem::FolderPermissions::ReadWrite && FileSystem::isFolderReadOnly(fsPath))) {
+        _initialPermissions = FileSystem::isFolderReadOnly(fsPath) ? OCC::FileSystem::FolderPermissions::ReadOnly : OCC::FileSystem::FolderPermissions::ReadWrite;
+        if (_initialPermissions != temporaryPermissions) {
             FileSystem::setFolderPermissions(_path, temporaryPermissions);
             _rollbackNeeded = true;
         }

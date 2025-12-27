@@ -45,6 +45,7 @@ class OWNCLOUDSYNC_EXPORT GETFileJob : public AbstractNetworkJob
 
     /// Will be set to true once we've seen a 2xx response header
     bool _saveBodyToFile = false;
+    qint64 _decompressionThresholdBase = 0;
 
 protected:
     qint64 _contentLength;
@@ -107,6 +108,9 @@ public:
     [[nodiscard]] qint64 contentLength() const { return _contentLength; }
     [[nodiscard]] qint64 expectedContentLength() const { return _expectedContentLength; }
     void setExpectedContentLength(qint64 size) { _expectedContentLength = size; }
+
+    [[nodiscard]] qint64 decompressionThresholdBase() const { return _decompressionThresholdBase; }
+    void setDecompressionThresholdBase(qint64 decompressionThresholdBase) { _decompressionThresholdBase = decompressionThresholdBase; }
 
 protected:
     virtual qint64 writeToDevice(const QByteArray &data);
@@ -235,10 +239,10 @@ private slots:
     /// Called when it's time to update the db metadata
     void updateMetadata(bool isConflict);
 
-    void abort(PropagatorJob::AbortType abortType) override;
+    void abort(OCC::PropagatorJob::AbortType abortType) override;
     void slotDownloadProgress(qint64, qint64);
     void slotChecksumFail(const QString &errMsg, const QByteArray &calculatedChecksumType,
-        const QByteArray &calculatedChecksum, const ValidateChecksumHeader::FailureReason reason);
+        const QByteArray &calculatedChecksum, const OCC::ValidateChecksumHeader::FailureReason reason);
     void processChecksumRecalculate(const QNetworkReply *reply, const QByteArray &originalChecksumHeader, const QString &errorMessage);
     void checksumValidateFailedAbortDownload(const QString &errMsg);
 

@@ -259,10 +259,17 @@ void FileInfo::setE2EE(const QString &relativePath, const bool enable)
     file->isEncrypted = enable;
 }
 
-FileInfo *FileInfo::find(PathComponents pathComponents, const bool invalidateEtags)
+void FileInfo::setFolderQuota(const QString &relativePath, const FolderQuota newQuota, const EtagsAction invalidateEtags)
+{
+    const auto file = find(relativePath, invalidateEtags);
+    Q_ASSERT(file);
+    file->folderQuota = newQuota;
+}
+
+FileInfo *FileInfo::find(PathComponents pathComponents, const EtagsAction invalidateEtags)
 {
     if (pathComponents.isEmpty()) {
-        if (invalidateEtags) {
+        if (invalidateEtags == EtagsAction::Invalidate) {
             etag = generateEtag();
         }
         return this;
@@ -280,7 +287,7 @@ FileInfo *FileInfo::find(PathComponents pathComponents, const bool invalidateEta
     return nullptr;
 }
 
-FileInfo FileInfo::findRecursive(PathComponents pathComponents, const bool invalidateEtags)
+FileInfo FileInfo::findRecursive(PathComponents pathComponents, const EtagsAction invalidateEtags)
 {
     auto result = find({pathComponents.takeFirst()}, invalidateEtags);
     if (!result) {
@@ -338,6 +345,11 @@ QString FileInfo::absolutePath() const
     return OCC::Utility::trailingSlashPath(parentPath) + name;
 }
 
+QByteArray FileInfo::numericFileId() const
+{
+    return fileId.left(fileId.indexOf("oc1x2y3z4w"));
+}
+
 void FileInfo::fixupParentPathRecursively()
 {
     auto p = path();
@@ -350,7 +362,7 @@ void FileInfo::fixupParentPathRecursively()
 
 FileInfo *FileInfo::findInvalidatingEtags(PathComponents pathComponents)
 {
-    return find(std::move(pathComponents), true);
+    return find(std::move(pathComponents), EtagsAction::Invalidate);
 }
 
 FakePropfindReply::FakePropfindReply(FileInfo &remoteRootFileInfo, QNetworkAccessManager::Operation op, const QNetworkRequest &request, QObject *parent)
@@ -397,7 +409,8 @@ FakePropfindReply::FakePropfindReply(FileInfo &remoteRootFileInfo, QNetworkAcces
             xml.writeEndElement(); // resourcetype
 
             auto totalSize = 0;
-            for (const auto &child : fileInfo.children.values()) {
+            const auto &allValues = fileInfo.children.values();
+            for (const auto &child : allValues) {
                 totalSize += child.size;
             }
             xml.writeTextElement(ocUri, QStringLiteral("size"), QString::number(totalSize));
@@ -409,16 +422,23 @@ FakePropfindReply::FakePropfindReply(FileInfo &remoteRootFileInfo, QNetworkAcces
         xml.writeTextElement(davUri, QStringLiteral("getlastmodified"), stringDate);
         xml.writeTextElement(davUri, QStringLiteral("getcontentlength"), QString::number(fileInfo.size));
         xml.writeTextElement(davUri, QStringLiteral("getetag"), QStringLiteral("\"%1\"").arg(QString::fromLatin1(fileInfo.etag)));
-        xml.writeTextElement(ocUri, QStringLiteral("quota-available-bytes"), std::to_string(fileInfo.quota.bytesAvailable));
-        xml.writeTextElement(ocUri, QStringLiteral("quota-used-bytes"), std::to_string(fileInfo.quota.bytesUsed));
+        xml.writeTextElement(ocUri, QStringLiteral("quota-available-bytes"), fileInfo.folderQuota.bytesAvailableString());
+        xml.writeTextElement(ocUri, QStringLiteral("quota-used-bytes"), std::to_string(fileInfo.folderQuota.bytesUsed));
         xml.writeTextElement(ocUri, QStringLiteral("permissions"), !fileInfo.permissions.isNull() ? QString(fileInfo.permissions.toString()) : fileInfo.isShared ? QStringLiteral("GSRDNVCKW") : QStringLiteral("GRDNVCKW"));
+        if (fileInfo.isShared) {
+            if (fileInfo.downloadForbidden) {
+                xml.writeTextElement(ocUri, QStringLiteral("share-attributes"), QStringLiteral("[{\"scope\":\"permissions\",\"key\":\"download\",\"value\":false}]"));
+            } else {
+                xml.writeTextElement(ocUri, QStringLiteral("share-attributes"), QStringLiteral("[{\"scope\":\"permissions\",\"key\":\"download\",\"value\":true}]"));
+            }
+        }
         xml.writeTextElement(ocUri, QStringLiteral("share-permissions"), QString::number(static_cast<int>(OCC::SharePermissions(OCC::SharePermissionRead |
                                                                                                                                 OCC::SharePermissionUpdate |
                                                                                                                                 OCC::SharePermissionCreate |
                                                                                                                                 OCC::SharePermissionDelete |
                                                                                                                                 OCC::SharePermissionShare))));
         xml.writeTextElement(ocUri, QStringLiteral("id"), QString::fromUtf8(fileInfo.fileId));
-        xml.writeTextElement(ocUri, QStringLiteral("fileid"), QString::fromUtf8(fileInfo.fileId));
+        xml.writeTextElement(ocUri, QStringLiteral("fileid"), QString::fromUtf8(fileInfo.numericFileId()));
         xml.writeTextElement(ocUri, QStringLiteral("checksums"), QString::fromUtf8(fileInfo.checksums));
         xml.writeTextElement(ocUri, QStringLiteral("privatelink"), href);
         xml.writeTextElement(ncUri, QStringLiteral("lock-owner"), fileInfo.lockOwnerId);
@@ -515,7 +535,7 @@ FileInfo *FakePutReply::perform(FileInfo &remoteRootFileInfo, const QNetworkRequ
         fileInfo = remoteRootFileInfo.create(fileName, putPayload.size(), putPayload.isEmpty() ? ' ' : putPayload.at(0));
     }
     fileInfo->lastModified = OCC::Utility::qDateTimeFromTime_t(request.rawHeader("X-OC-Mtime").toLongLong());
-    remoteRootFileInfo.find(fileName, /*invalidateEtags=*/true);
+    remoteRootFileInfo.find(fileName, /*invalidateEtags=*/FileInfo::EtagsAction::Invalidate);
     return fileInfo;
 }
 
@@ -559,13 +579,13 @@ QVector<FileInfo *> FakePutMultiFileReply::performMultiPart(FileInfo &remoteRoot
     const QString boundaryValue = QStringLiteral("--") + contentType.mid(boundaryPosition, contentType.length() - boundaryPosition - 1) + QStringLiteral("\r\n");
     auto stringPutPayloadRef = QString{stringPutPayload}.left(stringPutPayload.size() - 2 - boundaryValue.size());
     auto allParts = stringPutPayloadRef.split(boundaryValue, Qt::SkipEmptyParts);
-    for (const auto &onePart : allParts) {
+    for (const auto &onePart : std::as_const(allParts)) {
         auto headerEndPosition = onePart.indexOf(QStringLiteral("\r\n\r\n"));
         auto onePartHeaderPart = onePart.left(headerEndPosition);
         auto onePartBody = onePart.mid(headerEndPosition + 4, onePart.size() - headerEndPosition - 6);
         auto onePartHeaders = onePartHeaderPart.split(QStringLiteral("\r\n"));
         QMap<QString, QString> allHeaders;
-        for(const auto &oneHeader : onePartHeaders) {
+        for(const auto &oneHeader : std::as_const(onePartHeaders)) {
             auto headerParts = oneHeader.split(QStringLiteral(": "));
             allHeaders[headerParts.at(0).toLower()] = headerParts.at(1);
         }
@@ -629,7 +649,7 @@ QVector<FileInfo *> FakePutMultiFileReply::performMultiPart(FileInfo &remoteRoot
             fileInfo = remoteRootFileInfo.create(fileName, onePartBody.size(), onePartBody.at(0).toLatin1());
         }
         fileInfo->lastModified = OCC::Utility::qDateTimeFromTime_t(modtime);
-        remoteRootFileInfo.find(fileName, /*invalidateEtags=*/true);
+        remoteRootFileInfo.find(fileName, /*invalidateEtags=*/FileInfo::EtagsAction::Invalidate);
         result.push_back(fileInfo);
     }
     return result;
@@ -956,7 +976,7 @@ FileInfo *FakeChunkMoveReply::perform(FileInfo &uploadsFileInfo, FileInfo &remot
         fileInfo = remoteRootFileInfo.create(fileName, size, payload);
     }
     fileInfo->lastModified = OCC::Utility::qDateTimeFromTime_t(request.rawHeader("X-OC-Mtime").toLongLong());
-    remoteRootFileInfo.find(fileName, /*invalidateEtags=*/true);
+    remoteRootFileInfo.find(fileName, /*invalidateEtags=*/FileInfo::EtagsAction::Invalidate);
 
     return fileInfo;
 }
@@ -1203,15 +1223,16 @@ void FakeQNAM::setServerVersion(const QString &version)
     _serverVersion = version;
 }
 
-FakeFolder::FakeFolder(const FileInfo &fileTemplate, const OCC::Optional<FileInfo> &localFileInfo, const QString &remotePath)
-    : _localModifier(_tempDir.path())
+FakeFolder::FakeFolder(const FileInfo &fileTemplate, const OCC::Optional<FileInfo> &localFileInfo, const QString &remotePath, const bool performInitialSync)
+    : _tempDirLocalPath(QFileInfo(_tempDir.path()).canonicalFilePath())
+    , _localModifier(_tempDirLocalPath)
 {
     // Needs to be done once
     OCC::SyncEngine::minimumFileAgeForUpload = std::chrono::milliseconds(0);
     OCC::Logger::instance()->setLogFile(QStringLiteral("-"));
     OCC::Logger::instance()->addLogRule({ QStringLiteral("sync.httplogger=true") });
 
-    QDir rootDir { _tempDir.path() };
+    QDir rootDir { _tempDirLocalPath };
     qDebug() << "FakeFolder operating on" << rootDir;
     if (localFileInfo) {
         toDisk(rootDir, *localFileInfo);
@@ -1242,10 +1263,12 @@ FakeFolder::FakeFolder(const FileInfo &fileTemplate, const OCC::Optional<FileInf
     // Ensure we have a valid VfsOff instance "running"
     switchToVfs(_syncEngine->syncOptions()._vfs);
 
-    // A new folder will update the local file state database on first sync.
-    // To have a state matching what users will encounter, we have to a sync
-    // using an identical local/remote file tree first.
-    ENFORCE(syncOnce());
+    if (performInitialSync) {
+        // A new folder will update the local file state database on first sync.
+        // To have a state matching what users will encounter, we have to a sync
+        // using an identical local/remote file tree first.
+        ENFORCE(syncOnce());
+    }
 }
 
 void FakeFolder::switchToVfs(QSharedPointer<OCC::Vfs> vfs)
@@ -1361,7 +1384,7 @@ void FakeFolder::setServerVersion(const QString &version)
 
 FileInfo FakeFolder::currentLocalState()
 {
-    QDir rootDir { _tempDir.path() };
+    QDir rootDir { _tempDirLocalPath };
     FileInfo rootTemplate;
     fromDisk(rootDir, rootTemplate);
     rootTemplate.fixupParentPathRecursively();
@@ -1371,7 +1394,7 @@ FileInfo FakeFolder::currentLocalState()
 QString FakeFolder::localPath() const
 {
     // SyncEngine wants a trailing slash
-    return OCC::Utility::trailingSlashPath(_tempDir.path());
+    return OCC::Utility::trailingSlashPath(_tempDirLocalPath);
 }
 
 void FakeFolder::scheduleSync()
@@ -1423,7 +1446,8 @@ void FakeFolder::toDisk(QDir &dir, const FileInfo &templateFi)
 
 void FakeFolder::fromDisk(QDir &dir, FileInfo &templateFi)
 {
-    for(const auto &diskChild : dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot)) {
+    const auto &allEntries = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    for(const auto &diskChild : allEntries) {
         if (diskChild.isDir()) {
             QDir subDir = dir;
             subDir.cd(diskChild.fileName());

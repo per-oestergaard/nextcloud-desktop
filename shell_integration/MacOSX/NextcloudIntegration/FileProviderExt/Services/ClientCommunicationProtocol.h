@@ -10,14 +10,17 @@
 
 @protocol ClientCommunicationProtocol
 
-- (void)getExtensionAccountIdWithCompletionHandler:(void(^)(NSString *extensionAccountId, NSError *error))completionHandler;
+/**
+ * @brief Get the raw file provider domain identifier value.
+ */
+- (void)getFileProviderDomainIdentifierWithCompletionHandler:(void(^)(NSString *extensionAccountId, NSError *error))completionHandler;
+
 - (void)configureAccountWithUser:(NSString *)user
                           userId:(NSString *)userId
                        serverUrl:(NSString *)serverUrl
                         password:(NSString *)password
                        userAgent:(NSString *)userAgent;
 - (void)removeAccountConfig;
-- (void)createDebugLogStringWithCompletionHandler:(void(^)(NSString *debugLogString, NSError *error))completionHandler;
 - (void)getTrashDeletionEnabledStateWithCompletionHandler:(void(^)(BOOL enabled, BOOL set))completionHandler;
 - (void)setTrashDeletionEnabled:(BOOL)enabled;
 - (void)setIgnoreList:(NSArray<NSString *> *)ignoreList;

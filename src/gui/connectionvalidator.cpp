@@ -43,7 +43,7 @@ ConnectionValidator::ConnectionValidator(AccountStatePtr accountState, const QSt
 void ConnectionValidator::checkServerAndAuth()
 {
     if (!_account) {
-        _errors << tr("No Nextcloud account configured");
+        _errors << tr("No %1 account configured", "The placeholder will be the application name. Please keep it").arg(APPLICATION_NAME);
         reportResult(NotConfigured);
         return;
     }
@@ -52,8 +52,7 @@ void ConnectionValidator::checkServerAndAuth()
     _isCheckingServerAndAuth = true;
 
     // Lookup system proxy in a thread https://github.com/owncloud/client/issues/2993
-    if ((ClientProxy::isUsingSystemDefault() && _account->networkProxySetting() == Account::AccountNetworkProxySetting::GlobalProxy)
-        || _account->proxyType() == QNetworkProxy::DefaultProxy) {
+    if (ClientProxy::isUsingSystemDefault() || _account->proxyType() == QNetworkProxy::DefaultProxy) {
         qCDebug(lcConnectionValidator) << "Trying to look up system proxy";
         ClientProxy::lookupSystemProxyAsync(_account->url(), this, SLOT(systemProxyLookupDone(QNetworkProxy)));
     } else {
@@ -154,6 +153,9 @@ void ConnectionValidator::slotNoStatusFound(QNetworkReply *reply)
     auto job = qobject_cast<CheckServerJob *>(sender());
     qCWarning(lcConnectionValidator) << reply->error() << reply->errorString() << job->errorString() << reply->peek(1024);
     if (reply->error() == QNetworkReply::SslHandshakeFailedError) {
+        if (const auto hstsError = AbstractNetworkJob::hstsErrorStringFromReply(reply)) {
+            _errors.append(*hstsError);
+        }
         reportResult(SslError);
         return;
     }
@@ -270,6 +272,11 @@ void ConnectionValidator::slotCapabilitiesRecieved(const QJsonDocument &json)
     _account->fetchDirectEditors(directEditingURL, directEditingETag);
 
     checkServerTermsOfService();
+
+    if (_account->isPublicShareLink()) {
+        slotUserFetched(nullptr);
+        return;
+    }
 }
 
 void ConnectionValidator::fetchUser()
@@ -320,7 +327,7 @@ void ConnectionValidator::slotUserFetched(UserInfo *userInfo)
 
 #ifndef TOKEN_AUTH_ONLY
     connect(_account->e2e(), &ClientSideEncryption::initializationFinished, this, &ConnectionValidator::reportConnected);
-    _account->e2e()->initialize(nullptr, _account);
+    _account->e2e()->initialize(nullptr);
 #else
     reportResult(Connected);
 #endif

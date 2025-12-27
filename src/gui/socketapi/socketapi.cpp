@@ -6,7 +6,6 @@
 
 #include "socketapi.h"
 #include "socketapi_p.h"
-#include "socketapi/socketuploadjob.h"
 
 #include "conflictdialog.h"
 #include "conflictsolver.h"
@@ -62,8 +61,9 @@
 #include <QProcess>
 #include <QStandardPaths>
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include <CoreFoundation/CoreFoundation.h>
+#include "common/utility_mac_sandbox.h"
 #endif
 
 #ifdef HAVE_KGUIADDONS
@@ -77,6 +77,8 @@
 // The first number should be changed if there is an incompatible change that breaks old clients.
 // The second number should be changed when there are new features.
 #define MIRALL_SOCKET_API_VERSION "1.1"
+
+using namespace Qt::StringLiterals;
 
 namespace {
 constexpr auto encryptJobPropertyFolder = "folder";
@@ -238,7 +240,6 @@ SocketApi::SocketApi(QObject *parent)
 
     qRegisterMetaType<SocketListener *>("SocketListener*");
     qRegisterMetaType<QSharedPointer<SocketApiJob>>("QSharedPointer<SocketApiJob>");
-    qRegisterMetaType<QSharedPointer<SocketApiJobV2>>("QSharedPointer<SocketApiJobV2>");
 
     if (Utility::isWindows()) {
         socketPath = QLatin1String(R"(\\.\pipe\)")
@@ -295,7 +296,12 @@ SocketApi::SocketApi(QObject *parent)
         }
     }
     if (!_localServer.listen(socketPath)) {
-        qCWarning(lcSocketApi) << "can't start server" << socketPath;
+        qCWarning(lcSocketApi) << "can't start server" 
+                               << socketPath
+                               << "Error:"
+                               << _localServer.errorString()
+                               << "Error code:" 
+                               << _localServer.serverError();
     } else {
         qCInfo(lcSocketApi) << "server started, listening at " << socketPath;
     }
@@ -379,8 +385,6 @@ void SocketApi::slotReadSocket()
             QByteArray functionWithArguments = QByteArrayLiteral("command_");
             if (command.startsWith("ASYNC_")) {
                 functionWithArguments += command + QByteArrayLiteral("(QSharedPointer<SocketApiJob>)");
-            } else if (command.startsWith("V2/")) {
-                functionWithArguments += QByteArrayLiteral("V2_") + command.mid(3) + QByteArrayLiteral("(QSharedPointer<SocketApiJobV2>)");
             } else {
                 functionWithArguments += command + QByteArrayLiteral("(QString,SocketListener*)");
             }
@@ -389,12 +393,11 @@ void SocketApi::slotReadSocket()
             if (out == -1) {
                 listener->sendError(QStringLiteral("Function %1 not found").arg(QString::fromUtf8(functionWithArguments)));
             }
-            ASSERT(out != -1)
             return out;
         }();
 
         const auto argument = QString{argPos != -1 ? line.mid(argPos + 1) : QString()};
-        if (command.startsWith("ASYNC_")) {
+        if (command.startsWith("ASYNC_"_L1)) {
             const auto arguments = argument.split('|');
             if (arguments.size() != 2) {
                 listener->sendError(QStringLiteral("argument count is wrong"));
@@ -415,24 +418,6 @@ void SocketApi::slotReadSocket()
                 qCWarning(lcSocketApi) << "The command is not supported by this version of the client:" << command
                                        << "with argument:" << argument;
                 socketApiJob->reject(QStringLiteral("command not found"));
-            }
-        } else if (command.startsWith("V2/")) {
-            QJsonParseError error{};
-            const auto json = QJsonDocument::fromJson(argument.toUtf8(), &error).object();
-            if (error.error != QJsonParseError::NoError) {
-                qCWarning(lcSocketApi()) << "Invalid json" << argument << error.errorString();
-                listener->sendError(error.errorString());
-                return;
-            }
-            auto socketApiJob = QSharedPointer<SocketApiJobV2>::create(listener, command, json);
-            if (indexOfMethod != -1) {
-                staticMetaObject.method(indexOfMethod)
-                    .invoke(this, Qt::QueuedConnection,
-                        Q_ARG(QSharedPointer<SocketApiJobV2>, socketApiJob));
-            } else {
-                qCWarning(lcSocketApi) << "The command is not supported by this version of the client:" << command
-                                       << "with argument:" << argument;
-                socketApiJob->failure(QStringLiteral("command not found"));
             }
         } else if (command.startsWith("ENCRYPT")) {
             if (indexOfMethod != -1) {
@@ -729,8 +714,8 @@ void SocketApi::command_EDIT(const QString &localFile, SocketListener *listener)
     job->setVerb(JsonApiJob::Verb::Post);
 
     QObject::connect(job, &JsonApiJob::jsonReceived, [](const QJsonDocument &json){
-        auto data = json.object().value("ocs").toObject().value("data").toObject();
-        auto url = QUrl(data.value("url").toString());
+        auto data = json.object().value("ocs"_L1).toObject().value("data"_L1).toObject();
+        auto url = QUrl(data.value("url"_L1).toString());
 
         if(!url.isEmpty())
             Utility::openBrowser(url);
@@ -1046,13 +1031,26 @@ void SocketApi::command_MOVE_ITEM(const QString &localFile, SocketListener *)
     // Add back the folder path
     defaultDirAndName = QDir(fileData.folder->path()).filePath(defaultDirAndName);
 
-    const auto target = QFileDialog::getSaveFileName(
+    // Use getSaveFileUrl for sandbox compatibility
+    const auto targetUrl = QFileDialog::getSaveFileUrl(
         nullptr,
         tr("Select new location …"),
-        defaultDirAndName,
+        QUrl::fromLocalFile(defaultDirAndName),
         QString(), nullptr, QFileDialog::HideNameFilterDetails);
-    if (target.isEmpty())
+    if (targetUrl.isEmpty())
         return;
+
+#ifdef Q_OS_MACOS
+    // On macOS with app sandbox, we need to explicitly access the security-scoped resource
+    auto scopedAccess = Utility::MacSandboxSecurityScopedAccess::create(targetUrl);
+    
+    if (!scopedAccess->isValid()) {
+        qCWarning(lcSocketApi) << "Could not access security-scoped resource for conflict resolution:" << targetUrl;
+        return;
+    }
+#endif
+
+    const auto target = targetUrl.toLocalFile();
 
     ConflictSolver solver;
     solver.setLocalVersionFilename(localFile);
@@ -1099,23 +1097,6 @@ void SocketApi::setFileLock(const QString &localFile, const SyncFileItem::LockSt
 
     shareFolder->journalDb()->schedulePathForRemoteDiscovery(fileData.serverRelativePath);
     shareFolder->scheduleThisFolderSoon();
-}
-
-void SocketApi::command_V2_LIST_ACCOUNTS(const QSharedPointer<SocketApiJobV2> &job) const
-{
-    QJsonArray out;
-    const auto accounts = AccountManager::instance()->accounts();
-    for (auto acc : accounts) {
-        // TODO: Use uuid once https://github.com/owncloud/client/pull/8397 is merged
-        out << QJsonObject({ { "name", acc->account()->displayName() }, { "id", acc->account()->id() } });
-    }
-    job->success({ { "accounts", out } });
-}
-
-void SocketApi::command_V2_UPLOAD_FILES_FROM(const QSharedPointer<SocketApiJobV2> &job) const
-{
-    auto uploadJob = new SocketUploadJob(job);
-    uploadJob->start();
 }
 
 void SocketApi::emailPrivateLink(const QString &link)
@@ -1693,31 +1674,6 @@ void SocketApiJob::resolve(const QJsonObject &response)
 void SocketApiJob::reject(const QString &response)
 {
     _socketListener->sendMessage(QStringLiteral("REJECT|") + _jobId + QLatin1Char('|') + response);
-}
-
-SocketApiJobV2::SocketApiJobV2(const QSharedPointer<SocketListener> &socketListener, const QByteArray &command, const QJsonObject &arguments)
-    : _socketListener(socketListener)
-    , _command(command)
-    , _jobId(arguments[QStringLiteral("id")].toString())
-    , _arguments(arguments[QStringLiteral("arguments")].toObject())
-{
-    ASSERT(!_jobId.isEmpty())
-}
-
-void SocketApiJobV2::success(const QJsonObject &response) const
-{
-    doFinish(response);
-}
-
-void SocketApiJobV2::failure(const QString &error) const
-{
-    doFinish({ { QStringLiteral("error"), error } });
-}
-
-void SocketApiJobV2::doFinish(const QJsonObject &obj) const
-{
-    _socketListener->sendMessage(_command + QStringLiteral("_RESULT:") + QJsonDocument({ { QStringLiteral("id"), _jobId }, { QStringLiteral("arguments"), obj } }).toJson(QJsonDocument::Compact));
-    Q_EMIT finished();
 }
 
 } // namespace OCC

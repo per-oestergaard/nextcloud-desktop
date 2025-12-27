@@ -14,6 +14,7 @@
 #include <localdiscoverytracker.h>
 
 using namespace OCC;
+using namespace Qt::StringLiterals;
 
 class TestLocalDiscovery : public QObject
 {
@@ -400,10 +401,10 @@ private slots:
 
         QVERIFY(fakeFolder.syncOnce());
 
-        QCOMPARE(completeSpy.findItem(fileWithSpaces1)->_status, SyncFileItem::Status::FileNameInvalid);
+        QCOMPARE(completeSpy.findItem(fileWithSpaces1)->_status, SyncFileItem::Status::Success);
         QCOMPARE(completeSpy.findItem(fileWithSpaces2)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(fileWithSpaces3)->_status, SyncFileItem::Status::FileNameInvalid);
-        QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::FileNameInvalid);
+        QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::Success);
         QCOMPARE(completeSpy.findItem(fileWithSpaces5)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(fileWithSpaces6)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(extraFileNameWithSpaces)->_status, SyncFileItem::Status::FileNameInvalid);
@@ -422,13 +423,13 @@ private slots:
         QVERIFY(fakeFolder.syncOnce());
 
 #if !defined Q_OS_WINDOWS
-        QCOMPARE(completeSpy.findItem(QStringLiteral("foo"))->_status, SyncFileItem::Status::Success);
-        QCOMPARE(completeSpy.findItem(QStringLiteral("bar"))->_status, SyncFileItem::Status::Success);
+        QCOMPARE(completeSpy.findItem(fileWithSpaces1)->_status, SyncFileItem::Status::NoStatus);
+        QCOMPARE(completeSpy.findItem(QStringLiteral(" bar"))->_status, SyncFileItem::Status::Success);
         QCOMPARE(completeSpy.findItem(QStringLiteral("bla"))->_status, SyncFileItem::Status::Success);
-        QCOMPARE(completeSpy.findItem(QStringLiteral("A/foo"))->_status, SyncFileItem::Status::Success);
-        QCOMPARE(completeSpy.findItem(QStringLiteral("A/bar"))->_status, SyncFileItem::Status::Success);
+        QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::NoStatus);
+        QCOMPARE(completeSpy.findItem(QStringLiteral("A/ bar"))->_status, SyncFileItem::Status::Success);
         QCOMPARE(completeSpy.findItem(QStringLiteral("A/bla"))->_status, SyncFileItem::Status::Success);
-        QCOMPARE(completeSpy.findItem(QStringLiteral("with spaces"))->_status, SyncFileItem::Status::Success);
+        QCOMPARE(completeSpy.findItem(QStringLiteral(" with spaces"))->_status, SyncFileItem::Status::Success);
 #endif
     }
 
@@ -452,7 +453,7 @@ private slots:
         QVERIFY(fakeFolder.syncOnce());
 
 #if defined Q_OS_WINDOWS
-            QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::FileNameInvalid);
+            QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::Success);
             QCOMPARE(completeSpy.findItem(fileWithSpaces5)->_status, SyncFileItem::Status::FileNameInvalid);
             QCOMPARE(completeSpy.findItem(fileWithSpaces6)->_status, SyncFileItem::Status::FileNameInvalid);
 #else
@@ -487,12 +488,12 @@ private slots:
 
         QVERIFY(fakeFolder.syncOnce());
 
-        QCOMPARE(completeSpy.findItem(fileWithSpaces1)->_status, SyncFileItem::Status::FileNameInvalid);
+        QCOMPARE(completeSpy.findItem(fileWithSpaces1)->_status, SyncFileItem::Status::Success);
         QCOMPARE(completeSpy.findItem(fileWithSpaces2)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(fileWithSpaces3)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(folderWithSpaces1)->_status, SyncFileItem::Status::FileNameInvalid);
         QCOMPARE(completeSpy.findItem(folderWithSpaces2)->_status, SyncFileItem::Status::FileNameInvalid);
-        QVERIFY(!fakeFolder.remoteModifier().find(fileWithSpaces1));
+        QVERIFY(fakeFolder.remoteModifier().find(fileWithSpaces1));
         QVERIFY(!fakeFolder.remoteModifier().find(fileWithSpaces2));
         QVERIFY(!fakeFolder.remoteModifier().find(fileWithSpaces3));
         QVERIFY(!fakeFolder.remoteModifier().find(folderWithSpaces1));
@@ -523,7 +524,7 @@ private slots:
         QVERIFY(fakeFolder.syncOnce());
 
 #if defined Q_OS_WINDOWS
-            QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::FileNameInvalid);
+            QCOMPARE(completeSpy.findItem(fileWithSpaces4)->_status, SyncFileItem::Status::Success);
             QCOMPARE(completeSpy.findItem(fileWithSpaces5)->_status, SyncFileItem::Status::FileNameInvalid);
             QCOMPARE(completeSpy.findItem(fileWithSpaces6)->_status, SyncFileItem::Status::FileNameInvalid);
 #else
@@ -550,7 +551,7 @@ private slots:
         FakeFolder fakeFolder{FileInfo{}};
         fakeFolder.enableEnforceWindowsFileNameCompatibility();
         QCOMPARE(fakeFolder.currentLocalState(), fakeFolder.currentRemoteState());
-        const QString fileWithSpaces(" foo");
+        const QString fileWithSpaces("foo ");
         const QString fileTrimmed("foo");
 
         fakeFolder.localModifier().insert(fileTrimmed);
@@ -865,6 +866,177 @@ private slots:
         SyncJournalFileRecord fileRecordAfter;
         QVERIFY(fakeFolder.syncJournal().getFileRecord(QStringLiteral("bar"), &fileRecordAfter));
         QVERIFY(!fileRecordAfter._lockstate._locked);
+    }
+
+    void testDiscoveryUsesCorrectQuotaSource()
+    {
+        //setup sync folder
+        FakeFolder fakeFolder{FileInfo{}};
+
+        // create folder
+        const QString folderA("A");
+        fakeFolder.localModifier().mkdir(folderA);
+        fakeFolder.remoteModifier().mkdir(folderA);
+        fakeFolder.remoteModifier().setFolderQuota(folderA, {0, 500});
+
+        // sync folderA
+        ItemCompletedSpy syncSpy(fakeFolder);
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(folderA)->_status, SyncFileItem::Status::NoStatus);
+
+        // check db quota for folderA - bytesAvailable is 500
+        SyncJournalFileRecord recordFolderA;
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(folderA, &recordFolderA));
+        QCOMPARE(recordFolderA._folderQuota.bytesAvailable, 500);
+
+        // add fileNameA to folderA - size < quota in db
+        const QString fileNameA("A/A.data");
+        fakeFolder.localModifier().insert(fileNameA, 200);
+
+        // set different quota for folderA - remote change does not change etag yet
+        fakeFolder.remoteModifier().setFolderQuota(folderA, {0, 0});
+
+        // sync filenameA - size == quota => success
+        syncSpy.clear();
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(fileNameA)->_status, SyncFileItem::Status::Success);
+
+        // add smallFile to folderA - size < quota in db
+        const QString smallFile("A/smallFile.data");
+        fakeFolder.localModifier().insert(smallFile, 100);
+
+        // sync smallFile - size < quota in db => success => update quota in db
+        syncSpy.clear();
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(smallFile)->_status, SyncFileItem::Status::Success);
+
+        // create remoteFileA - size > bytes available
+        const QString remoteFileA("A/remoteA.data");
+        fakeFolder.remoteModifier().insert(remoteFileA, 200);
+
+        // sync remoteFile - it is a download
+        syncSpy.clear();
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(remoteFileA)->_status, SyncFileItem::Status::Success);
+
+        // check db quota for folderA - bytesAvailable have changed to 0 due to new PROPFIND
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(folderA, &recordFolderA));
+        QCOMPARE(recordFolderA._folderQuota.bytesAvailable, 0);
+
+        // create local fileNameB - size < quota in db
+        const QString fileNameB("A/B.data");
+        fakeFolder.localModifier().insert(fileNameB, 0);
+
+        // set different quota for folderA - remote change does not change etag yet
+        fakeFolder.remoteModifier().setFolderQuota(folderA, {500, 600});
+
+        // sync fileNameB - size < quota in db => success
+        syncSpy.clear();
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(fileNameB)->_status, SyncFileItem::Status::Success);
+
+        // create remoteFileB - it is a download
+        const QString remoteFileB("A/remoteB.data");
+        fakeFolder.remoteModifier().insert(remoteFileA, 100);
+
+        // create local fileNameC - size < quota in db
+        const QString fileNameC("A/C.data");
+        fakeFolder.localModifier().insert(fileNameC, 0);
+
+        // sync filenameC - size < quota in db => success
+        syncSpy.clear();
+        QVERIFY(fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(fileNameC)->_status, SyncFileItem::Status::Success);
+
+        // check db quota for folderA - bytesAvailable have changed to 600 due to new PROPFIND
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(folderA, &recordFolderA));
+        QCOMPARE(recordFolderA._folderQuota.bytesAvailable, 600);
+
+        QCOMPARE(syncSpy.findItem(remoteFileB)->_status, SyncFileItem::Status::NoStatus);
+
+        // create local fileNameD - size > quota in db
+        const QString fileNameD("A/D.data");
+        fakeFolder.localModifier().insert(fileNameD, 700);
+
+        // sync fileNameD - size > quota in db => error
+        syncSpy.clear();
+        QVERIFY(!fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(fileNameD)->_status, SyncFileItem::Status::NormalError);
+
+        // create local fileNameE - size < quota in db
+        const QString fileNameE("A/E.data");
+        fakeFolder.localModifier().insert(fileNameE, 400);
+
+        // sync fileNameE - size < quota in db => success
+        syncSpy.clear();
+        QVERIFY(!fakeFolder.syncOnce());
+        QCOMPARE(syncSpy.findItem(fileNameE)->_status, SyncFileItem::Status::Success);
+    }
+
+    void testMissingInodeAndFixThem()
+    {
+        FakeFolder fakeFolder{FileInfo{}};
+
+        fakeFolder.remoteModifier().mkdir(u"A"_s);
+        fakeFolder.remoteModifier().mkdir(u"A/B"_s);
+        fakeFolder.remoteModifier().insert(u"textFile.txt"_s);
+        fakeFolder.remoteModifier().insert(u"document.md"_s);
+        fakeFolder.remoteModifier().insert(u"A/B/sub-folder.md"_s);
+
+        QVERIFY(fakeFolder.syncOnce());
+
+        auto documentFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"document.md"_s, &documentFileRecord));
+        QCOMPARE_GT(documentFileRecord._inode, 0);
+        documentFileRecord._inode = 0;
+        QVERIFY(fakeFolder.syncJournal().setFileRecord(documentFileRecord).isValid());
+
+        auto textFileFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"textFile.txt"_s, &textFileFileRecord));
+        QCOMPARE_GT(textFileFileRecord._inode, 0);
+        textFileFileRecord._inode = 0;
+        QVERIFY(fakeFolder.syncJournal().setFileRecord(textFileFileRecord).isValid());
+
+        auto aFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A"_s, &aFolderFileRecord));
+        QCOMPARE_GT(aFolderFileRecord._inode, 0);
+        aFolderFileRecord._inode = 0;
+        QVERIFY(fakeFolder.syncJournal().setFileRecord(aFolderFileRecord).isValid());
+
+        auto bFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A/B"_s, &bFolderFileRecord));
+        QCOMPARE_GT(bFolderFileRecord._inode, 0);
+        bFolderFileRecord._inode = 0;
+        QVERIFY(fakeFolder.syncJournal().setFileRecord(bFolderFileRecord).isValid());
+
+        auto subFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A/B/sub-folder.md"_s, &subFolderFileRecord));
+        QCOMPARE_GT(subFolderFileRecord._inode, 0);
+        subFolderFileRecord._inode = 0;
+        QVERIFY(fakeFolder.syncJournal().setFileRecord(subFolderFileRecord).isValid());
+
+        fakeFolder.syncEngine().setLocalDiscoveryOptions(LocalDiscoveryStyle::FilesystemOnly);
+        QVERIFY(fakeFolder.syncOnce());
+
+        documentFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"document.md"_s, &documentFileRecord));
+        QCOMPARE_GT(documentFileRecord._inode, 0);
+
+        textFileFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"textFile.txt"_s, &textFileFileRecord));
+        QCOMPARE_GT(textFileFileRecord._inode, 0);
+
+        aFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A"_s, &aFolderFileRecord));
+        QCOMPARE_GT(aFolderFileRecord._inode, 0);
+
+        bFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A/B"_s, &bFolderFileRecord));
+        QCOMPARE_GT(bFolderFileRecord._inode, 0);
+
+        subFolderFileRecord = SyncJournalFileRecord{};
+        QVERIFY(fakeFolder.syncJournal().getFileRecord(u"A/B/sub-folder.md"_s, &subFolderFileRecord));
+        QCOMPARE_GT(subFolderFileRecord._inode, 0);
     }
 };
 

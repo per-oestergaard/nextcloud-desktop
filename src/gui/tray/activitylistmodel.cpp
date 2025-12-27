@@ -26,6 +26,8 @@
 #include <QJsonDocument>
 #include <QLoggingCategory>
 
+using namespace Qt::StringLiterals;
+
 namespace OCC {
 
 Q_LOGGING_CATEGORY(lcActivity, "nextcloud.gui.activity", QtInfoMsg)
@@ -221,13 +223,13 @@ QVariant ActivityListModel::data(const QModelIndex &index, int role) const
         if (a._type == Activity::NotificationType && !a._talkNotificationData.userAvatar.isEmpty()) {
             return QStringLiteral("image://svgimage-custom-color/talk-bordered.svg");
         } else if (a._type == Activity::SyncResultType) {
-            return colorIconPath.arg("state-error.svg");
+            return colorIconPath.arg("error.svg");
         } else if (a._type == Activity::SyncFileItemType) {
             if (a._syncFileItemStatus == SyncFileItem::NormalError
                 || a._syncFileItemStatus == SyncFileItem::FatalError
                 || a._syncFileItemStatus == SyncFileItem::DetailError
                 || a._syncFileItemStatus == SyncFileItem::BlacklistedError) {
-                return colorIconPath.arg("state-error.svg");
+                return colorIconPath.arg("error.svg");
             } else if (a._syncFileItemStatus == SyncFileItem::SoftError
                 || a._syncFileItemStatus == SyncFileItem::Conflict
                 || a._syncFileItemStatus == SyncFileItem::Restoration
@@ -235,9 +237,9 @@ QVariant ActivityListModel::data(const QModelIndex &index, int role) const
                 || a._syncFileItemStatus == SyncFileItem::FileNameInvalid
                 || a._syncFileItemStatus == SyncFileItem::FileNameInvalidOnServer
                 || a._syncFileItemStatus == SyncFileItem::FileNameClash) {
-                return colorIconPath.arg("state-warning.svg");
+                return colorIconPath.arg("warning.svg");
             } else if (a._syncFileItemStatus == SyncFileItem::FileIgnored) {
-                return colorIconPath.arg("state-info.svg");
+                return colorIconPath.arg("info.svg");
             } else {
                 // File sync successful
                 if (a._fileAction == "file_created") {
@@ -504,7 +506,7 @@ void ActivityListModel::insertOrRemoveDummyFetchingActivity()
 
 void ActivityListModel::activitiesReceived(const QJsonDocument &json, int statusCode)
 {
-    const auto activities = json.object().value(QStringLiteral("ocs")).toObject().value(QStringLiteral("data")).toArray();
+    const auto activities = json.object().value("ocs"_L1).toObject().value("data"_L1).toArray();
 
     if (!_accountState) {
         return;
@@ -523,24 +525,41 @@ void ActivityListModel::activitiesReceived(const QJsonDocument &json, int status
 
 void ActivityListModel::addEntriesToActivityList(const ActivityList &activityList)
 {
-    if(activityList.isEmpty()) {
+    if (activityList.isEmpty()) {
+        return;
+    }
+
+    // filter activities that do not need to be added again
+    ActivityList filteredList;
+    std::copy_if(activityList.constBegin(), activityList.constEnd(), std::back_inserter(filteredList), [this](const auto &activity) -> bool {
+        if (activity._type == Activity::NotificationType && _activeNotificationIds.contains(activity._id)) {
+            return false;
+        }
+        return true;
+    });
+
+    if (filteredList.isEmpty()) {
         return;
     }
 
     const auto startRow = _finalList.count();
 
-    beginInsertRows({}, startRow, startRow + activityList.count() - 1);
-    for(const auto &activity : activityList) {
+    beginInsertRows({}, startRow, startRow + filteredList.count() - 1);
+    for(const auto &activity : std::as_const(filteredList)) {
         _finalList.append(activity);
+
+        if (activity._syncFileItemStatus == SyncFileItem::Conflict) {
+            _conflictsList.push_back(activity);
+        }
+
+        if (activity._type == Activity::NotificationType) {
+            // new unseen notification, to avoid duplicate activities to appear add its id to the filter list
+            _activeNotificationIds.insert(activity._id);
+        }
     }
     endInsertRows();
 
-    const auto deselectedConflictIt = std::find_if(_finalList.constBegin(), _finalList.constEnd(), [] (const auto activity) {
-        return activity._syncFileItemStatus == SyncFileItem::Conflict;
-    });
-    const auto conflictsFound = (deselectedConflictIt != _finalList.constEnd());
-
-    setHasSyncConflicts(conflictsFound);
+    setHasSyncConflicts(!_conflictsList.isEmpty());
 }
 
 void ActivityListModel::accountStateHasChanged()
@@ -593,7 +612,6 @@ void ActivityListModel::addNotificationToActivityList(const Activity &activity)
 {
     qCDebug(lcActivity) << "Notification successfully added to the notification list: " << activity._subject;
     addEntriesToActivityList({activity});
-    _notificationLists.prepend(activity);
     for (const auto &link : activity._links) {
         if (link._verb == QByteArrayLiteral("POST")
             || link._verb == QByteArrayLiteral("REPLY")
@@ -607,7 +625,6 @@ void ActivityListModel::addSyncFileItemToActivityList(const Activity &activity)
 {
     qCDebug(lcActivity) << "Successfully added to the activity list: " << activity._subject;
     addEntriesToActivityList({activity});
-    _syncFileItemLists.prepend(activity);
 }
 
 void ActivityListModel::removeActivityFromActivityList(int row)
@@ -625,6 +642,14 @@ void ActivityListModel::removeActivityFromActivityList(const Activity &activity)
         endRemoveRows();
     }
 
+    if (activity._syncFileItemStatus == SyncFileItem::Conflict) {
+        _conflictsList.removeOne(activity);
+    }
+
+    if (activity._type == Activity::NotificationType) {
+        _activeNotificationIds.remove(activity._id);
+    }
+
     if (activity._type != Activity::ActivityType &&
         activity._type != Activity::DummyFetchingActivityType &&
         activity._type != Activity::DummyMoreActivitiesAvailableType &&
@@ -632,20 +657,26 @@ void ActivityListModel::removeActivityFromActivityList(const Activity &activity)
         activity._type != Activity::OpenSettingsNotificationType) {
 
         const auto notificationErrorsListIndex = _notificationErrorsLists.indexOf(activity);
-        if (notificationErrorsListIndex != -1)
+        if (notificationErrorsListIndex != -1) {
             _notificationErrorsLists.removeAt(notificationErrorsListIndex);
+        }
     }
 }
 
-void ActivityListModel::checkAndRemoveSeenActivities(const OCC::ActivityList &newActivities)
+void ActivityListModel::removeOutdatedNotifications(const OCC::ActivityList &receivedNotifications)
 {
     ActivityList activitiesToRemove;
-    for (const auto &activity : _finalList) {
-        const auto isTalkActiity = activity._objectType == QStringLiteral("chat") ||
-            activity._objectType == QStringLiteral("call");
-        if (isTalkActiity && !newActivities.contains(activity)) {
-            activitiesToRemove.push_back(activity);
+    for (const auto &activity : std::as_const(_finalList)) {
+        if (activity._type != Activity::NotificationType || receivedNotifications.contains(activity)) {
+            continue;
         }
+
+        qCDebug(lcActivity).nospace() << "marking notification activity for removal"
+            << " activity.type=" << activity._type
+            << " activity.id=" << activity._id
+            << " activity.objectType=" << activity._objectType
+            << " activity.accName=" << activity._accName;
+        activitiesToRemove.push_back(activity);
     }
 
     for (const auto &toRemove : activitiesToRemove) {
@@ -925,8 +956,10 @@ void ActivityListModel::slotRefreshActivityInitial()
 void ActivityListModel::slotRemoveAccount()
 {
     _finalList.clear();
+    _conflictsList.clear();
     _activityLists.clear();
     _presentedActivities.clear();
+    _activeNotificationIds.clear();
     setAndRefreshCurrentlyFetching(false);
     _doneFetching = false;
     _currentItem = 0;
@@ -957,15 +990,7 @@ bool ActivityListModel::hasSyncConflicts() const
 
 ActivityList ActivityListModel::allConflicts() const
 {
-    auto result = ActivityList{};
-
-    for(const auto &activity : _finalList) {
-        if (activity._syncFileItemStatus == SyncFileItem::Conflict) {
-            result.push_back(activity);
-        }
-    }
-
-    return result;
+    return _conflictsList;
 }
 
 }

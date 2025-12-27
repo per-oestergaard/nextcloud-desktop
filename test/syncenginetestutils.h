@@ -59,8 +59,9 @@ inline QString getFilePathFromUrl(const QUrl &url)
 inline QByteArray generateEtag() {
     return QByteArray::number(QDateTime::currentDateTimeUtc().toMSecsSinceEpoch(), 16) + QByteArray::number(OCC::Utility::rand(), 16);
 }
+// generates a value as seen in `oc:id` attributes (file ID + instance ID)
 inline QByteArray generateFileId() {
-    return QByteArray::number(OCC::Utility::rand(), 16);
+    return QByteArray::number(OCC::Utility::rand(), 10) + "oc1x2y3z4w";
 }
 
 class PathComponents : public QStringList {
@@ -72,8 +73,8 @@ public:
     [[nodiscard]] PathComponents parentDirComponents() const;
     [[nodiscard]] PathComponents subComponents() const &;
     PathComponents subComponents() && { removeFirst(); return std::move(*this); }
-    [[nodiscard]] QString pathRoot() const { return first(); }
-    [[nodiscard]] QString fileName() const { return last(); }
+    [[nodiscard]] QString pathRoot() const { return isEmpty() ? QString{} : first(); }
+    [[nodiscard]] QString fileName() const { return isEmpty() ? QString{} : last(); }
 };
 
 class FileModifier
@@ -127,6 +128,34 @@ public:
     FileInfo(const QString &name, qint64 size, char contentChar, QDateTime mtime) : name{name}, isDir{false}, lastModified(mtime), size{size}, contentChar{contentChar} { }
     FileInfo(const QString &name, const std::initializer_list<FileInfo> &children);
 
+    enum EtagsAction {
+        Keep = 0,
+        Invalidate,
+    };
+    struct FolderQuota {
+        int64_t bytesUsed = 0;
+        int64_t bytesAvailable = 5000000000;
+
+        FolderQuota() : bytesUsed{0}, bytesAvailable{5000000000} {};
+        FolderQuota(int64_t bytesUsed, int64_t bytesAvailable)
+            : bytesUsed{bytesUsed}
+            , bytesAvailable{bytesAvailable}
+        {}
+
+        QString bytesAvailableString() const {
+            if (_bytesAvailableString.isEmpty()) {
+                return QString::number(bytesAvailable);
+            }
+
+            return _bytesAvailableString;
+        }
+
+        void setBytesAvailableString(const QString &bytesAvailableString) { _bytesAvailableString = bytesAvailableString; }
+
+    private:
+        QString _bytesAvailableString = QStringLiteral("");
+    };
+
     void addChild(const FileInfo &info);
 
     void remove(const QString &relativePath) override;
@@ -150,9 +179,10 @@ public:
     void modifyLockState(const QString &relativePath, LockState lockState, int lockType, const QString &lockOwner, const QString &lockOwnerId, const QString &lockEditorId, quint64 lockTime, quint64 lockTimeout) override;
 
     void setE2EE(const QString &relativepath, const bool enabled) override;
+    void setFolderQuota(const QString &relativePath, const FolderQuota newQuota, const EtagsAction invalidateEtags = EtagsAction::Keep);
 
-    FileInfo *find(PathComponents pathComponents, const bool invalidateEtags = false);
-    FileInfo findRecursive(PathComponents pathComponents, const bool invalidateEtags = false);
+    FileInfo *find(PathComponents pathComponents, const EtagsAction invalidateEtags = EtagsAction::Keep);
+    FileInfo findRecursive(PathComponents pathComponents, const EtagsAction invalidateEtags = EtagsAction::Keep);
 
     FileInfo *createDir(const QString &relativePath);
 
@@ -171,12 +201,17 @@ public:
     [[nodiscard]] QString path() const;
     [[nodiscard]] QString absolutePath() const;
 
+    // value of `oc:fileid` from PROPFIND responses, unlike `oc:id` this does
+    // not include the instance ID (i.e. only the numbers)
+    [[nodiscard]] QByteArray numericFileId() const;
+
     void fixupParentPathRecursively();
 
     QString name;
     int operationStatus = 200;
     bool isDir = true;
     bool isShared = false;
+    bool downloadForbidden = false;
     OCC::RemotePermissions permissions; // When uset, defaults to everything
     QDateTime lastModified = QDateTime::currentDateTimeUtc().addDays(-7);
     QByteArray etag = generateEtag();
@@ -194,12 +229,7 @@ public:
     quint64 lockTimeout = 0;
     bool isEncrypted = false;
     bool isLivePhoto = false;
-
-    struct FileInfoQuota {
-        int64_t bytesUsed = 0;
-        int64_t bytesAvailable = 5000000000;
-    };
-    FileInfoQuota quota;
+    FolderQuota folderQuota;
 
     // Sorted by name to be able to compare trees
     QMap<QString, FileInfo> children;
@@ -547,9 +577,11 @@ public:
     [[nodiscard]] QString password() const override { return "password"; }
     [[nodiscard]] QNetworkAccessManager *createQNAM() const override { return _qnam; }
     [[nodiscard]] bool ready() const override { return true; }
-    void fetchFromKeychain() override { }
+    void fetchFromKeychain(const QString &appName) override { Q_UNUSED(appName) }
     void askFromUser() override { }
-    bool stillValid(QNetworkReply *) override { return true; }
+    bool stillValid(QNetworkReply *reply) override {
+        return reply->error() != QNetworkReply::AuthenticationRequiredError;
+    }
     void persist() override { }
     void invalidateToken() override { }
     void forgetSensitiveData() override { }
@@ -562,6 +594,7 @@ public:
 class FakeFolder
 {
     QTemporaryDir _tempDir;
+    QString _tempDirLocalPath;
     DiskFileModifier _localModifier;
     // FIXME: Clarify ownership, double delete
     FakeQNAM *_fakeQnam;
@@ -571,7 +604,7 @@ class FakeFolder
     QString _serverVersion = QStringLiteral("10.0.0");
 
 public:
-    FakeFolder(const FileInfo &fileTemplate, const OCC::Optional<FileInfo> &localFileInfo = {}, const QString &remotePath = {});
+    FakeFolder(const FileInfo &fileTemplate, const OCC::Optional<FileInfo> &localFileInfo = {}, const QString &remotePath = {}, const bool performInitialSync = true);
 
     void switchToVfs(QSharedPointer<OCC::Vfs> vfs);
 

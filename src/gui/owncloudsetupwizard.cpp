@@ -19,6 +19,7 @@
 #include "sslerrordialog.h"
 #include "wizard/owncloudwizard.h"
 #include "wizard/owncloudwizardcommon.h"
+#include "account.h"
 
 #include "creds/credentialsfactory.h"
 #include "creds/abstractcredentials.h"
@@ -26,6 +27,7 @@
 
 #ifdef BUILD_FILE_PROVIDER_MODULE
 #include "gui/macOS/fileprovider.h"
+#include "gui/macOS/fileprovidersettingscontroller.h"
 #endif
 
 #include <QAbstractButton>
@@ -34,6 +36,8 @@
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QApplication>
+
+using namespace Qt::StringLiterals;
 
 namespace OCC {
 
@@ -145,20 +149,34 @@ void OwncloudSetupWizard::startWizard()
 }
 
 // also checks if an installation is valid and determines auth type in a second step
-void OwncloudSetupWizard::slotCheckServer(const QString &urlString)
+void OwncloudSetupWizard::slotCheckServer(const QUrl &serverURL, const OCC::WizardProxySettingsDialog::WizardProxySettings &proxySettings)
 {
-    QString fixedUrl = urlString;
-    QUrl url = QUrl::fromUserInput(fixedUrl);
-    // fromUserInput defaults to http, not http if no scheme is specified
-    if (!fixedUrl.startsWith("http://") && !fixedUrl.startsWith("https://")) {
-        url.setScheme("https");
-    }
     AccountPtr account = _ocWizard->account();
-    account->setUrl(url);
+    account->setUrl(serverURL);
 
-    // Reset the proxy which might had been determined previously in ConnectionValidator::checkServerAndAuth()
-    // when there was a previous account.
-    account->networkAccessManager()->setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+    account->setProxyType(proxySettings._proxyType);
+    switch (proxySettings._proxyType)
+    {
+    case QNetworkProxy::HttpCachingProxy:
+    case QNetworkProxy::FtpCachingProxy:
+    case QNetworkProxy::NoProxy:
+    case QNetworkProxy::ProxyType::DefaultProxy:
+        // Reset the proxy which might had been determined previously in ConnectionValidator::checkServerAndAuth()
+        // when there was a previous account.
+        account->networkAccessManager()->setProxy({QNetworkProxy::NoProxy});
+        break;
+    case QNetworkProxy::Socks5Proxy:
+    case QNetworkProxy::HttpProxy:
+        account->setProxyHostName(proxySettings._host);
+        account->setProxyPort(proxySettings._port);
+        account->setProxyNeedsAuth(proxySettings._needsAuth == WizardProxySettingsDialog::ProxyAuthentication::AuthenticationRequired);
+        if (account->proxyNeedsAuth()) {
+            account->setProxyUser(proxySettings._user);
+            account->setProxyPassword(proxySettings._password);
+        }
+
+        break;
+    }
 
     // And also reset the QSslConfiguration, for the same reason (#6832)
     // Here the client certificate is added, if any. Later it'll be in HttpCredentials
@@ -167,19 +185,18 @@ void OwncloudSetupWizard::slotCheckServer(const QString &urlString)
     if (!_ocWizard->_clientSslCertificate.isNull()) {
         sslConfiguration.setLocalCertificate(_ocWizard->_clientSslCertificate);
         sslConfiguration.setPrivateKey(_ocWizard->_clientSslKey);
+        // Merge client side CA with system CA
+        auto ca = sslConfiguration.systemCaCertificates();
+        ca.append(_ocWizard->_clientSslCaCertificates);
+        sslConfiguration.setCaCertificates(ca);
     }
-    // Be sure to merge the CAs
-    auto ca = sslConfiguration.systemCaCertificates();
-    ca.append(_ocWizard->_clientSslCaCertificates);
-    sslConfiguration.setCaCertificates(ca);
     account->setSslConfiguration(sslConfiguration);
 
     // Make sure TCP connections get re-established
     account->networkAccessManager()->clearAccessCache();
 
     // Lookup system proxy in a thread https://github.com/owncloud/client/issues/2993
-    if ((ClientProxy::isUsingSystemDefault() && account->networkProxySetting() == Account::AccountNetworkProxySetting::GlobalProxy)
-        || account->proxyType() == QNetworkProxy::DefaultProxy) {
+    if (ClientProxy::isUsingSystemDefault() || account->proxyType() == QNetworkProxy::DefaultProxy) {
         qCDebug(lcWizard) << "Trying to look up system proxy";
         ClientProxy::lookupSystemProxyAsync(account->url(), this, SLOT(slotSystemProxyLookupDone(QNetworkProxy)));
     } else {
@@ -286,7 +303,11 @@ void OwncloudSetupWizard::slotFoundServer(const QUrl &url, const QJsonObject &in
         qCInfo(lcWizard) << " was redirected to" << url.toString();
     }
 
-    slotDetermineAuthType();
+    if (_ocWizard->account()->isPublicShareLink()) {
+        _ocWizard->setAuthType(DetermineAuthTypeJob::Basic);
+    } else {
+        slotDetermineAuthType();
+    }
 }
 
 void OwncloudSetupWizard::slotNoServerFound(QNetworkReply *reply)
@@ -338,6 +359,19 @@ void OwncloudSetupWizard::slotConnectToOCUrl(const QString &url)
         creds->persist();
     }
 
+    if (_ocWizard->account()->isPublicShareLink()) {
+        _ocWizard->account()->setDavUser(creds->user());
+        _ocWizard->account()->setDavDisplayName(creds->user());
+
+        _ocWizard->setField(QLatin1String("OCUrl"), url);
+        _ocWizard->appendToConfigurationLog(tr("Trying to connect to %1 at %2 …")
+                                                .arg(Theme::instance()->appNameGUI())
+                                                .arg(url));
+
+        testOwnCloudConnect();
+        return;
+    }
+
     const auto fetchUserNameJob = new JsonApiJob(_ocWizard->account()->sharedFromThis(), QStringLiteral("/ocs/v1.php/cloud/user"));
     connect(fetchUserNameJob, &JsonApiJob::jsonReceived, this, [this, url](const QJsonDocument &json, int statusCode) {
         if (statusCode != 100) {
@@ -346,9 +380,9 @@ void OwncloudSetupWizard::slotConnectToOCUrl(const QString &url)
 
         sender()->deleteLater();
 
-        const auto objData = json.object().value("ocs").toObject().value("data").toObject();
-        const auto userId = objData.value("id").toString("");
-        const auto displayName = objData.value("display-name").toString("");
+        const auto objData = json.object().value("ocs"_L1).toObject().value("data"_L1).toObject();
+        const auto userId = objData.value("id"_L1).toString(QString());
+        const auto displayName = objData.value("display-name"_L1).toString(QString());
         _ocWizard->account()->setDavUser(userId);
         _ocWizard->account()->setDavDisplayName(displayName);
 
@@ -410,7 +444,7 @@ void OwncloudSetupWizard::slotAuthError()
 
         // strip the expected path
         QString path = redirectUrl.path();
-        static QString expectedPath = "/" + _ocWizard->account()->davPath();
+        static QString expectedPath = u'/' + _ocWizard->account()->davPath();
         if (path.endsWith(expectedPath)) {
             path.chop(expectedPath.size());
             redirectUrl.setPath(path);
@@ -456,7 +490,7 @@ void OwncloudSetupWizard::slotAuthError()
 
 bool OwncloudSetupWizard::checkDowngradeAdvised(QNetworkReply *reply)
 {
-    if (reply->url().scheme() != QLatin1String("https")) {
+    if (reply->url().scheme() != "https"_L1) {
         return false;
     }
 
@@ -471,7 +505,7 @@ bool OwncloudSetupWizard::checkDowngradeAdvised(QNetworkReply *reply)
     }
 
     // Adhere to HSTS, even though we do not parse it properly
-    if (reply->hasRawHeader("Strict-Transport-Security")) {
+    if (reply->hasRawHeader("Strict-Transport-Security"_L1)) {
         return false;
     }
     return true;
@@ -479,6 +513,14 @@ bool OwncloudSetupWizard::checkDowngradeAdvised(QNetworkReply *reply)
 
 void OwncloudSetupWizard::slotCreateLocalAndRemoteFolders(const QString &localFolder, const QString &remoteFolder)
 {
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    if (_ocWizard->useVirtualFileSync()) {
+        qCInfo(lcWizard) << "Not creating local/remote folders as because macOS File Provider uses its own sync root";
+        finalizeSetup(true);
+        return;
+    }
+#endif
+
     qCInfo(lcWizard) << "Setup local sync folder for new oC connection " << localFolder;
     const QDir fi(localFolder);
 
@@ -681,19 +723,12 @@ void OwncloudSetupWizard::slotAssistantFinished(int result)
         auto account = applyAccountChanges();
 
 #ifdef BUILD_FILE_PROVIDER_MODULE
-        if (Mac::FileProvider::fileProviderAvailable()) {
-            Mac::FileProvider::instance()->domainManager()->addFileProviderDomainForAccount(account);
-            _ocWizard->appendToConfigurationLog(
-                tr("<font color=\"green\"><b>File Provider-based account %1 successfully created!</b></font>").arg(account->account()->userIdAtHostWithPort()));
+        if (_ocWizard->useVirtualFileSyncByDefault()) {
+            auto const accountId = account->account()->userIdAtHostWithPort();
+            Mac::FileProviderSettingsController::instance()->setVfsEnabledForAccount(accountId, true, false);
+            _ocWizard->appendToConfigurationLog(tr("<font color=\"green\"><b>File Provider-based account %1 successfully created!</b></font>").arg(accountId));
             _ocWizard->done(result);
             emit ownCloudWizardDone(result);
-
-            QMessageBox::information(nullptr,
-                                     tr("Virtual files enabled"),
-                                     tr("Your account is now syncing with virtual files support. "
-                                        "This means that all your files are online-only by default, "
-                                        "and will be downloaded on-demand when you open them. "
-                                        "You may find your files under the <b>Locations</b> section of the Finder sidebar."));
 
             return;
         }
@@ -768,7 +803,13 @@ AccountState *OwncloudSetupWizard::applyAccountChanges()
     auto manager = AccountManager::instance();
 
     auto newState = manager->addAccount(newAccount);
+
+    if (newAccount->isPublicShareLink()) {
+        qCInfo(lcWizard()) << "setting up public share link account";
+    }
+
     manager->saveAccount(newAccount);
+
     return newState;
 }
 

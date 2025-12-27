@@ -54,17 +54,41 @@ namespace Utility {
     OCSYNC_EXPORT void usleep(int usec);
     OCSYNC_EXPORT QString formatFingerprint(const QByteArray &, bool colonSeparated = true);
     /**
-     * @brief Creates the Desktop.ini file which contains the folder IconResource shown as a favorite link
+     * @brief Create favorite link for sync folder with application name and icon
      *
      * @param folder absolute file path to folder
      */
     OCSYNC_EXPORT void setupFavLink(const QString &folder);
+    /**
+     * @brief Migrate favorite link for sync folder with new application name and icon
+     *
+     * @param folder absolute file path to folder
+     */
+    OCSYNC_EXPORT void migrateFavLink(const QString &folder);
+    /**
+     * @brief Creates or overwrite the Desktop.ini file to use new folder IconResource shown as a favorite link
+     *
+     * @param folder absolute file path to folder
+     * @param localizedResourceName new folder name to be used as display name (migration)
+     */
+    OCSYNC_EXPORT void setupDesktopIni(const QString &folder, const QString localizedResourceName = {});
     /**
      * @brief Removes the Desktop.ini file which contains the folder IconResource shown as a favorite link
      *
      * @param folder absolute file path to folder
      */
     OCSYNC_EXPORT void removeFavLink(const QString &folder);
+    /**
+     * @brief Return the display name of a folder - to be used in fav links and sync root name (VFS).x
+     * e.g. Nextcloud1 will become NewAppName1, NewAppName2 or FolderName will be kept as is.
+     *
+     * @param currentDisplayName current folder display name string
+     * @param newName new name to be used for the folder
+     */
+    OCSYNC_EXPORT QString syncFolderDisplayName(const QString &currentDisplayName, const QString &newName);
+
+    // convenience system path to links folder
+    OCSYNC_EXPORT QString systemPathToLinks();
 
     OCSYNC_EXPORT bool writeRandomFile(const QString &fname, int size = -1);
     OCSYNC_EXPORT QString octetsToString(const qint64 octets);
@@ -302,6 +326,35 @@ namespace Utility {
         Q_DISABLE_COPY(NtfsPermissionLookupRAII);
     };
 
+    /**
+     * Closes a Win32 HANDLE if the HANDLE is valid (i.e. not `INVALID_HANDLE_VALUE`).
+     */
+    struct OCSYNC_EXPORT HandleDeleter {
+        typedef HANDLE pointer; // HANDLEs are not really pointers even though they're treated as such
+
+        void operator()(HANDLE handle) const;
+    };
+
+    /**
+     * A `std::unique_ptr` that automatically closes a HANDLE.
+     */
+    using UniqueHandle = std::unique_ptr<HANDLE, HandleDeleter>;
+
+    /**
+     * Releases a pointer previously allocated by `LocalAlloc`.
+     */
+    struct OCSYNC_EXPORT LocalFreeDeleter {
+        void operator()(void *p) const;
+    };
+
+    /**
+     * A `std::unique_ptr` that automatically cleans up `P*` types (e.g. `PSID`).
+     *
+     * Use this whenever the Win32 API docs of a given function tell you to free a returned buffer
+     * by calling the `LocalFree` function.
+     */
+    template<typename T>
+    using UniqueLocalFree = std::unique_ptr<typename std::remove_pointer<T>::type, LocalFreeDeleter>;
 #endif
 }
 /** @} */ // \addtogroup
@@ -317,7 +370,7 @@ inline constexpr bool Utility::isWindows()
 
 inline constexpr bool Utility::isMac()
 {
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     return true;
 #else
     return false;
@@ -350,6 +403,5 @@ inline constexpr bool Utility::isBSD()
     return false;
 #endif
 }
-
 }
 #endif // UTILITY_H

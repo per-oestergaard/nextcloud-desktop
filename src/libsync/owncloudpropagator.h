@@ -123,7 +123,7 @@ public slots:
      * Asynchronous abort requires emit of abortFinished() signal,
      * while synchronous is expected to abort immedietaly.
     */
-    virtual void abort(PropagatorJob::AbortType abortType) {
+    virtual void abort(OCC::PropagatorJob::AbortType abortType) {
         if (abortType == AbortType::Asynchronous)
             emit abortFinished();
     }
@@ -136,12 +136,12 @@ signals:
     /**
      * Emitted when the job is fully finished
      */
-    void finished(SyncFileItem::Status);
+    void finished(OCC::SyncFileItem::Status);
 
     /**
      * Emitted when the abort is fully finished
      */
-    void abortFinished(SyncFileItem::Status status = SyncFileItem::NormalError);
+    void abortFinished(OCC::SyncFileItem::Status status = SyncFileItem::NormalError);
 protected:
     [[nodiscard]] OwncloudPropagator *propagator() const;
 
@@ -184,7 +184,7 @@ protected:
     [[nodiscard]] bool hasEncryptedAncestor() const;
 
 protected slots:
-    void slotRestoreJobFinished(SyncFileItem::Status status);
+    void slotRestoreJobFinished(OCC::SyncFileItem::Status status);
 
 private:
     void reportClientStatuses();
@@ -323,6 +323,8 @@ public:
         _subJobs.appendTask(item);
     }
 
+    void willDeleteItemToClientTrashBin(const SyncFileItemPtr &item);
+
     bool scheduleSelfOrChild() override;
     [[nodiscard]] JobParallelism parallelism() const override;
     void abort(PropagatorJob::AbortType abortType) override
@@ -383,7 +385,6 @@ private slots:
     void slotDirDeletionJobsFinished(OCC::SyncFileItem::Status status);
 
 private:
-
     bool scheduleDelayedJobs();
 
     PropagatorCompositeJob _dirDeletionJobs;
@@ -523,14 +524,14 @@ public:
      */
     bool hasCaseClashAccessibilityProblem(const QString &relfile);
 
-    Q_REQUIRED_RESULT QString fullLocalPath(const QString &tmp_file_name) const;
+    [[nodiscard]] QString fullLocalPath(const QString &tmp_file_name) const;
     [[nodiscard]] QString localPath() const;
 
     /**
      * Returns the full remote path including the folder root of a
      * folder sync path.
      */
-    Q_REQUIRED_RESULT QString fullRemotePath(const QString &tmp_file_name) const;
+    [[nodiscard]] QString fullRemotePath(const QString &tmp_file_name) const;
     [[nodiscard]] QString remotePath() const;
 
     [[nodiscard]] QString fulllRemotePathToPathInSyncJournalDb(const QString &fullRemotePath) const;
@@ -623,9 +624,9 @@ public:
                                                                                  SyncJournalDb * const journal,
                                                                                  Vfs::UpdateMetadataTypes updateType);
 
-    Q_REQUIRED_RESULT bool isDelayedUploadItem(const SyncFileItemPtr &item) const;
+    [[nodiscard]] bool isDelayedUploadItem(const SyncFileItemPtr &item) const;
 
-    Q_REQUIRED_RESULT const std::deque<SyncFileItemPtr>& delayedTasks() const
+    [[nodiscard]] const std::deque<SyncFileItemPtr>& delayedTasks() const
     {
         return _delayedTasks;
     }

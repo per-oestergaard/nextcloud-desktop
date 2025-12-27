@@ -145,6 +145,9 @@ static CSYNC_EXCLUDE_TYPE _csync_excluded_common(const QString &path, bool exclu
         if (bname.startsWith(QLatin1String(".nextcloudsync.log"), Qt::CaseInsensitive)) { // ".nextcloudsync.log*"
             return CSYNC_FILE_SILENTLY_EXCLUDED;
         }
+        if (bname.startsWith(QLatin1String(".nextcloudpermissions.log"), Qt::CaseInsensitive)) { // ".nextcloudpermissions.log*"
+            return CSYNC_FILE_SILENTLY_EXCLUDED;
+        }
     }
 
     // check the strlen and ignore the file if its name is longer than 254 chars.
@@ -257,6 +260,11 @@ void ExcludedFiles::addManualExclude(const QString &expr, const QString &basePat
 {
     Q_ASSERT(basePath.endsWith(QLatin1Char('/')));
 
+    const auto trimmedExpr = QStringView{expr}.trimmed();
+    if (trimmedExpr == QLatin1String("*")) {
+        return;
+    }
+
     auto key = basePath;
     _manualExcludes[key].append(expr);
     _allExcludes[key].append(expr);
@@ -291,6 +299,10 @@ void ExcludedFiles::loadExcludeFilePatterns(const QString &basePath, QFile &file
         }
         if (line.isEmpty() || line.startsWith('#'))
             continue;
+        const auto patternStr = QString::fromUtf8(line);
+        if (QStringView{patternStr}.trimmed() == QLatin1StringView("*")) {
+            continue;
+        }
         csync_exclude_expand_escapes(line);
         patterns.append(QString::fromUtf8(line));
     }
@@ -724,7 +736,8 @@ void ExcludedFiles::prepare(const BasePathString & basePath)
         pattern.append(appendMe);
     };
 
-    for (auto exclude : _allExcludes.value(basePath)) {
+    const auto &allValues = _allExcludes.value(basePath);
+    for (auto exclude : allValues) {
         if (exclude[0] == QLatin1Char('\n'))
             continue; // empty line
         if (exclude[0] == QLatin1Char('\r'))

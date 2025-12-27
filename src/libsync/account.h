@@ -12,7 +12,9 @@
 #include "clientsideencryption.h"
 #include "clientstatusreporting.h"
 #include "common/utility.h"
+#include "common/vfs.h"
 #include "syncfileitem.h"
+#include "updatechannel.h"
 
 #include <QByteArray>
 #include <QUrl>
@@ -82,7 +84,6 @@ class OWNCLOUDSYNC_EXPORT Account : public QObject
     Q_PROPERTY(QUrl url MEMBER _url)
     Q_PROPERTY(bool e2eEncryptionKeysGenerationAllowed MEMBER _e2eEncryptionKeysGenerationAllowed)
     Q_PROPERTY(bool askUserForMnemonic READ askUserForMnemonic WRITE setAskUserForMnemonic NOTIFY askUserForMnemonicChanged)
-    Q_PROPERTY(AccountNetworkProxySetting networkProxySetting READ networkProxySetting WRITE setNetworkProxySetting NOTIFY networkProxySettingChanged)
     Q_PROPERTY(QNetworkProxy::ProxyType proxyType READ proxyType WRITE setProxyType NOTIFY proxyTypeChanged)
     Q_PROPERTY(QString proxyHostName READ proxyHostName WRITE setProxyHostName NOTIFY proxyHostNameChanged)
     Q_PROPERTY(int proxyPort READ proxyPort WRITE setProxyPort NOTIFY proxyPortChanged)
@@ -96,19 +97,14 @@ class OWNCLOUDSYNC_EXPORT Account : public QObject
     Q_PROPERTY(bool enforceUseHardwareTokenEncryption READ enforceUseHardwareTokenEncryption NOTIFY enforceUseHardwareTokenEncryptionChanged)
     Q_PROPERTY(QString encryptionHardwareTokenDriverPath READ encryptionHardwareTokenDriverPath NOTIFY encryptionHardwareTokenDriverPathChanged)
     Q_PROPERTY(QByteArray encryptionCertificateFingerprint READ encryptionCertificateFingerprint WRITE setEncryptionCertificateFingerprint NOTIFY encryptionCertificateFingerprintChanged)
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    Q_PROPERTY(QString fileProviderDomainIdentifier READ fileProviderDomainIdentifier WRITE setFileProviderDomainIdentifier)
+#endif
 
 public:
-    // We need to decide whether to use the client's global proxy settings or whether to use
-    // a specific setting for each account. Hence this enum
-    enum class AccountNetworkProxySetting {
-        GlobalProxy = 0,
-        AccountSpecificProxy,
-    };
-    Q_ENUM(AccountNetworkProxySetting)
-
     enum class AccountNetworkTransferLimitSetting {
-        GlobalLimit = -2,
-        AutoLimit, // Value under 0 is interpreted as auto in general
+        LegacyGlobalLimit = -2, // Until 3.17.0 a value of -2 was interpreted as "Use global network settings", it's now used to fall back to "No limit".  See also GH#8743
+        AutoLimit = -1, // Value under 0 is interpreted as auto in general
         NoLimit,
         ManualLimit,
     };
@@ -129,6 +125,8 @@ public:
      */
     [[nodiscard]] QString davUser() const;
     void setDavUser(const QString &newDavUser);
+
+    [[nodiscard]] QString userFromCredentials() const;
 
     [[nodiscard]] QString davDisplayName() const;
     void setDavDisplayName(const QString &newDisplayName);
@@ -162,6 +160,12 @@ public:
     /** Server url of the account */
     void setUrl(const QUrl &url);
     [[nodiscard]] QUrl url() const { return _url; }
+    [[nodiscard]] QUrl publicShareLinkUrl() const;
+
+    [[nodiscard]] bool isPublicShareLink() const
+    {
+        return _isPublicLink;
+    }
 
     /// Adjusts _userVisibleUrl once the host to use is discovered.
     void setUserVisibleHost(const QString &host);
@@ -201,15 +205,19 @@ public:
      * sendRequest().
      */
     QNetworkReply *sendRawRequest(const QByteArray &verb,
-        const QUrl &url,
-        QNetworkRequest req = QNetworkRequest(),
-        QIODevice *data = nullptr);
+                                  const QUrl &url,
+                                  QNetworkRequest req = QNetworkRequest(),
+                                  QIODevice *data = nullptr);
 
     QNetworkReply *sendRawRequest(const QByteArray &verb,
-        const QUrl &url, QNetworkRequest req, const QByteArray &data);
+                                  const QUrl &url,
+                                  QNetworkRequest req,
+                                  const QByteArray &data);
 
     QNetworkReply *sendRawRequest(const QByteArray &verb,
-        const QUrl &url, QNetworkRequest req, QHttpMultiPart *data);
+                                  const QUrl &url,
+                                  QNetworkRequest req,
+                                  QHttpMultiPart *data);
 
     /** Create and start network job for a simple one-off request.
      *
@@ -312,8 +320,8 @@ public:
     QString cookieJarPath();
 
     void resetNetworkAccessManager();
-    QNetworkAccessManager *networkAccessManager();
-    QSharedPointer<QNetworkAccessManager> sharedNetworkAccessManager();
+    [[nodiscard]] QNetworkAccessManager *networkAccessManager() const;
+    [[nodiscard]] QSharedPointer<QNetworkAccessManager> sharedNetworkAccessManager() const;
 
     /// Called by network jobs on credential errors, emits invalidCredentials()
     void handleInvalidCredentials();
@@ -322,7 +330,7 @@ public:
 
     /// Used in RemoteWipe
     void retrieveAppPassword();
-    void writeAppPasswordOnce(QString appPassword);
+    void writeAppPasswordOnce(const QString &appPassword);
     void deleteAppPassword();
 
     void deleteAppToken();
@@ -366,9 +374,6 @@ public:
     void updateDesktopEnterpriseChannel();
 
     // Network-related settings
-    [[nodiscard]] AccountNetworkProxySetting networkProxySetting() const;
-    void setNetworkProxySetting(AccountNetworkProxySetting networkProxySetting);
-
     [[nodiscard]] QNetworkProxy::ProxyType proxyType() const;
     void setProxyType(QNetworkProxy::ProxyType proxyType);
 
@@ -387,8 +392,7 @@ public:
     [[nodiscard]] QString proxyPassword() const;
     void setProxyPassword(const QString &password);
 
-    void setProxySettings(const AccountNetworkProxySetting networkProxySetting,
-                          const QNetworkProxy::ProxyType proxyType,
+    void setProxySettings(const QNetworkProxy::ProxyType proxyType,
                           const QString &proxyHostName,
                           const int proxyPort,
                           const bool proxyNeedsAuth,
@@ -411,6 +415,9 @@ public:
     [[nodiscard]] bool serverHasValidSubscription() const;
     void setServerHasValidSubscription(bool valid);
 
+    [[nodiscard]] UpdateChannel enterpriseUpdateChannel() const;
+    void setEnterpriseUpdateChannel(const UpdateChannel &channel);
+
     [[nodiscard]] bool enforceUseHardwareTokenEncryption() const;
 
     [[nodiscard]] QString encryptionHardwareTokenDriverPath() const;
@@ -418,11 +425,21 @@ public:
     [[nodiscard]] QByteArray encryptionCertificateFingerprint() const;
     void setEncryptionCertificateFingerprint(const QByteArray &fingerprint);
 
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    [[nodiscard]] QString fileProviderDomainIdentifier() const;
+    void setFileProviderDomainIdentifier(const QString &identifier);
+#endif
+
 public slots:
     /// Used when forgetting credentials
     void clearQNAMCache();
     void slotHandleSslErrors(QNetworkReply *, QList<QSslError>);
     void setAskUserForMnemonic(const bool ask);
+
+    void listRemoteFolder(QPromise<OCC::PlaceholderCreateInfo> *promise,
+                          const QString &remoteSyncRootPath,
+                          const QString &subPath,
+                          OCC::SyncJournalDb *journalForFolder);
 
 signals:
     /// Emitted whenever there's network activity
@@ -442,7 +459,7 @@ signals:
 
     void wantsFoldersSynced();
 
-    void serverVersionChanged(const AccountPtr &account, const QString &newVersion, const QString &oldVersion);
+    void serverVersionChanged(const OCC::AccountPtr &account, const QString &newVersion, const QString &oldVersion);
 
     void accountChangedAvatar();
     void accountChangedDisplayName();
@@ -482,13 +499,14 @@ signals:
     void encryptionCertificateFingerprintChanged();
     void userCertificateNeedsMigrationChanged();
 
+    void rootFolderQuotaChanged(const int64_t &usedBytes, const int64_t &availableBytes);
 protected Q_SLOTS:
     void slotCredentialsFetched();
     void slotCredentialsAsked();
     void slotDirectEditingRecieved(const QJsonDocument &json);
 
 private slots:
-    void removeLockStatusChangeInprogress(const QString &serverRelativePath, const SyncFileItem::LockStatus lockStatus);
+    void removeLockStatusChangeInprogress(const QString &serverRelativePath, const OCC::SyncFileItemEnums::LockStatus lockStatus);
 
 private:
     Account(QObject *parent = nullptr);
@@ -514,6 +532,8 @@ private:
 #endif
     QMap<QString, QVariant> _settingsMap;
     QUrl _url;
+    QUrl _publicShareLinkUrl;
+    bool _isPublicLink = false;
 
     /** If url to use for any user-visible urls.
      *
@@ -558,19 +578,22 @@ private:
 
     QHash<QString, QVector<SyncFileItem::LockStatus>> _lockStatusChangeInprogress;
 
-    AccountNetworkProxySetting _networkProxySetting = AccountNetworkProxySetting::GlobalProxy;
     QNetworkProxy::ProxyType _proxyType = QNetworkProxy::NoProxy;
     QString _proxyHostName;
     int _proxyPort = 0;
     bool _proxyNeedsAuth = false;
     QString _proxyUser;
     QString _proxyPassword;
-    AccountNetworkTransferLimitSetting _uploadLimitSetting = AccountNetworkTransferLimitSetting::GlobalLimit;
-    AccountNetworkTransferLimitSetting _downloadLimitSetting = AccountNetworkTransferLimitSetting::GlobalLimit;
+    AccountNetworkTransferLimitSetting _uploadLimitSetting = AccountNetworkTransferLimitSetting::NoLimit;
+    AccountNetworkTransferLimitSetting _downloadLimitSetting = AccountNetworkTransferLimitSetting::NoLimit;
     unsigned int _uploadLimit = 0;
     unsigned int _downloadLimit = 0;
     bool _serverHasValidSubscription = false;
+    UpdateChannel _enterpriseUpdateChannel = UpdateChannel::Invalid;
     QByteArray _encryptionCertificateFingerprint;
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    QString _fileProviderDomainIdentifier;
+#endif
 
     /* IMPORTANT - remove later - FIXME MS@2019-12-07 -->
      * TODO: For "Log out" & "Remove account": Remove client CA certs and KEY!

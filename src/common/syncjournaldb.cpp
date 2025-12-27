@@ -6,6 +6,8 @@
 
 #include <QCryptographicHash>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QStringList>
 #include <QElapsedTimer>
@@ -30,6 +32,11 @@
 #define IS_PREFIX_PATH_OR_EQUAL(prefix, path) \
     "(" path " == " prefix " OR " IS_PREFIX_PATH_OF(prefix, path) ")"
 
+static constexpr auto MAJOR_VERSION_3 = 3;
+static constexpr auto MINOR_VERSION_16 = 16;
+
+using namespace Qt::StringLiterals;
+
 namespace OCC {
 
 Q_LOGGING_CATEGORY(lcDb, "nextcloud.sync.database", QtInfoMsg)
@@ -38,7 +45,7 @@ Q_LOGGING_CATEGORY(lcDb, "nextcloud.sync.database", QtInfoMsg)
         "SELECT path, inode, modtime, type, md5, fileid, remotePerm, filesize," \
         "  ignoredChildrenRemote, contentchecksumtype.name || ':' || contentChecksum, e2eMangledName, isE2eEncrypted, e2eCertificateFingerprint, " \
         "  lock, lockOwnerDisplayName, lockOwnerId, lockType, lockOwnerEditor, lockTime, lockTimeout, lockToken, isShared, lastShareStateFetchedTimestmap, " \
-        "  sharedByMe, isLivePhoto, livePhotoFile" \
+        "  sharedByMe, isLivePhoto, livePhotoFile, quotaBytesUsed, quotaBytesAvailable" \
         " FROM metadata" \
         "  LEFT JOIN checksumtype as contentchecksumtype ON metadata.contentChecksumTypeId == contentchecksumtype.id"
 
@@ -69,6 +76,8 @@ static void fillFileRecordFromGetQuery(SyncJournalFileRecord &rec, SqlQuery &que
     rec._sharedByMe = query.intValue(23) > 0;
     rec._isLivePhoto = query.intValue(24) > 0;
     rec._livePhotoFile = query.stringValue(25);
+    rec._folderQuota.bytesUsed = query.int64Value(26);
+    rec._folderQuota.bytesAvailable = query.int64Value(27);
 }
 
 static QByteArray defaultJournalMode(const QString &dbPath)
@@ -82,7 +91,7 @@ static QByteArray defaultJournalMode(const QString &dbPath)
         qCInfo(lcDb) << "Filesystem contains FAT - using DELETE journal mode";
         return "DELETE";
     }
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
     if (dbPath.startsWith(QLatin1String("/Volumes/"))) {
         qCInfo(lcDb) << "Mounted sync dir, do not use WAL for" << dbPath;
         return "DELETE";
@@ -615,6 +624,13 @@ bool SyncJournalDb::checkConnect()
             if (!createQuery.exec()) {
                 return sqlFail(QStringLiteral("Update version"), createQuery);
             }
+
+            if (major < MAJOR_VERSION_3 || (major == MAJOR_VERSION_3 && minor <= MINOR_VERSION_16)) {
+                const auto fixEncryptionResult = ensureCorrectEncryptionStatus();
+                if (!fixEncryptionResult) {
+                    qCWarning(lcDb) << "Failed to update the encryption status";
+                }
+            }
         }
     }
 
@@ -700,9 +716,40 @@ bool SyncJournalDb::updateDatabaseStructure()
     return true;
 }
 
+bool SyncJournalDb::hasDefaultValue(const QString &columnName)
+{
+    SqlQuery query(_db);
+    const auto selectDefault = QStringLiteral("SELECT dflt_value FROM pragma_table_info('metadata') WHERE name = '%1';").arg(columnName);
+    query.prepare(selectDefault.toLatin1());
+    if (!query.exec()) {
+        sqlFail(QStringLiteral("check default value for: %1").arg(columnName), query);
+        return false;
+    }
+
+    if (const auto result = query.next();!result.ok || !result.hasData) {
+        qCWarning(lcDb) << "database error:" << query.error();
+        return false;
+    }
+
+    return !query.nullValue(0);
+}
+
+bool SyncJournalDb::removeColumn(const QString &columnName)
+{
+    SqlQuery query(_db);
+    const auto request = QStringLiteral("ALTER TABLE metadata DROP COLUMN %1;").arg(columnName);
+    query.prepare(request.toLatin1());
+    if (!query.exec()) {
+        sqlFail(QStringLiteral("update metadata structure: drop %1 column").arg(columnName), query);
+        return false;
+    }
+
+    commitInternal(QStringLiteral("update database structure: drop %1 column").arg(columnName));
+    return true;
+}
+
 bool SyncJournalDb::updateMetadataTableStructure()
 {
-
     auto columns = tableColumns("metadata");
     bool re = true;
 
@@ -711,11 +758,18 @@ bool SyncJournalDb::updateMetadataTableStructure()
         return false;
     }
 
-    const auto addColumn = [this, &columns, &re] (const QString &columnName, const QString &dataType, const bool withIndex = false) {
-        const auto latin1ColumnName = columnName.toLatin1();
-        if (columns.indexOf(latin1ColumnName) == -1) {
+    const auto columnExists = [&columns] (const QString &columnName) -> bool {
+        return columns.indexOf(columnName.toLatin1()) > -1;
+    };
+
+    const auto addColumn = [this, &re, &columnExists] (const QString &columnName, const QString &dataType, const bool withIndex = false, const QString defaultCommand = {}) {
+        if (!columnExists(columnName)) {
             SqlQuery query(_db);
-            const auto request = QStringLiteral("ALTER TABLE metadata ADD COLUMN %1 %2;").arg(columnName).arg(dataType);
+            auto request = QStringLiteral("ALTER TABLE metadata ADD COLUMN %1 %2").arg(columnName).arg(dataType);
+            if (!defaultCommand.isEmpty()) {
+                request.append(QStringLiteral(" ") + defaultCommand);
+            }
+            request.append(QStringLiteral(";"));
             query.prepare(request.toLatin1());
             if (!query.exec()) {
                 sqlFail(QStringLiteral("updateMetadataTableStructure: add %1 column").arg(columnName), query);
@@ -804,11 +858,19 @@ bool SyncJournalDb::updateMetadataTableStructure()
 
     if (true) {
         SqlQuery query(_db);
+
         query.prepare("CREATE INDEX IF NOT EXISTS metadata_e2e_id ON metadata(e2eMangledName);");
         if (!query.exec()) {
             sqlFail(QStringLiteral("updateMetadataTableStructure: create index e2eMangledName"), query);
             re = false;
         }
+
+        query.prepare("CREATE INDEX IF NOT EXISTS metadata_e2e_status ON metadata (path, phash, type, isE2eEncrypted)");
+        if (!query.exec()) {
+            sqlFail(QStringLiteral("updateMetadataTableStructure: create index metadata_e2e_status"), query);
+            re = false;
+        }
+
         commitInternal(QStringLiteral("update database structure: add e2eMangledName index"));
     }
 
@@ -831,6 +893,29 @@ bool SyncJournalDb::updateMetadataTableStructure()
 
     addColumn(QStringLiteral("isLivePhoto"), QStringLiteral("INTEGER"));
     addColumn(QStringLiteral("livePhotoFile"), QStringLiteral("TEXT"));
+
+    {
+        const auto quotaBytesUsed =  QStringLiteral("quotaBytesUsed");
+        const auto quotaBytesAvailable =  QStringLiteral("quotaBytesAvailable");
+        const auto defaultCommand = QStringLiteral("DEFAULT -1 NOT NULL");
+        const auto bigInt = QStringLiteral("BIGINT");
+        auto result = false;
+
+        if (columnExists(quotaBytesUsed) && !hasDefaultValue(quotaBytesUsed)) {
+            result = removeColumn(quotaBytesUsed);
+        }
+
+        if (columnExists(quotaBytesAvailable) && !hasDefaultValue(quotaBytesAvailable)) {
+            result = removeColumn(quotaBytesAvailable);
+        }
+
+        if (result) {
+            columns = tableColumns("metadata");
+        }
+
+        addColumn(quotaBytesUsed, bigInt, false, defaultCommand);
+        addColumn(quotaBytesAvailable, bigInt, false, defaultCommand);
+    }
 
     return re;
 }
@@ -918,7 +1003,7 @@ QVector<QByteArray> SyncJournalDb::tableColumns(const QByteArray &table)
 qint64 SyncJournalDb::getPHash(const QByteArray &file)
 {
     QByteArray bytes = file;
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     bytes = QString::fromUtf8(file).normalized(QString::NormalizationForm_C).toUtf8();
 #endif
 
@@ -933,6 +1018,11 @@ Result<void, QString> SyncJournalDb::setFileRecord(const SyncJournalFileRecord &
 {
     SyncJournalFileRecord record = _record;
     QMutexLocker locker(&_mutex);
+
+    Q_ASSERT(record._modtime > 0);
+    if (record._modtime <= 0) {
+        qCCritical(lcDb) << "invalid modification time";
+    }
 
     if (!_etagStorageFilter.isEmpty()) {
         // If we are a directory that should not be read from db next time, don't write the etag
@@ -960,7 +1050,10 @@ Result<void, QString> SyncJournalDb::setFileRecord(const SyncJournalFileRecord &
                  << "isShared:" << record._isShared
                  << "lastShareStateFetchedTimestamp:" << record._lastShareStateFetchedTimestamp
                  << "isLivePhoto" << record._isLivePhoto
-                 << "livePhotoFile" << record._livePhotoFile;
+                 << "livePhotoFile" << record._livePhotoFile
+                 << "folderQuota - bytesUsed:" << record._folderQuota.bytesUsed << "bytesAvailable:" << record._folderQuota.bytesAvailable;
+
+    Q_ASSERT(!record.path().isEmpty());
 
     const qint64 phash = getPHash(record._path);
     if (!checkConnect()) {
@@ -986,8 +1079,8 @@ Result<void, QString> SyncJournalDb::setFileRecord(const SyncJournalFileRecord &
     const auto query = _queryManager.get(PreparedSqlQueryManager::SetFileRecordQuery, QByteArrayLiteral("INSERT OR REPLACE INTO metadata "
                                                                                                         "(phash, pathlen, path, inode, uid, gid, mode, modtime, type, md5, fileid, remotePerm, filesize, ignoredChildrenRemote, "
                                                                                                         "contentChecksum, contentChecksumTypeId, e2eMangledName, isE2eEncrypted, e2eCertificateFingerprint, lock, lockType, lockOwnerDisplayName, lockOwnerId, "
-                                                                                                        "lockOwnerEditor, lockTime, lockTimeout, lockToken, isShared, lastShareStateFetchedTimestmap, sharedByMe, isLivePhoto, livePhotoFile) "
-                                                                                                        "VALUES (?1 , ?2, ?3 , ?4 , ?5 , ?6 , ?7,  ?8 , ?9 , ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32);"),
+                                                                                                        "lockOwnerEditor, lockTime, lockTimeout, lockToken, isShared, lastShareStateFetchedTimestmap, sharedByMe, isLivePhoto, livePhotoFile, quotaBytesUsed, quotaBytesAvailable) "
+                                                                                                        "VALUES (?1 , ?2, ?3 , ?4 , ?5 , ?6 , ?7,  ?8 , ?9 , ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34);"),
         _db);
     if (!query) {
         qCWarning(lcDb) << "database error:" << query->error();
@@ -1026,6 +1119,8 @@ Result<void, QString> SyncJournalDb::setFileRecord(const SyncJournalFileRecord &
     query->bindValue(30, record._sharedByMe);
     query->bindValue(31, record._isLivePhoto);
     query->bindValue(32, record._livePhotoFile);
+    query->bindValue(33, record._folderQuota.bytesUsed);
+    query->bindValue(34, record._folderQuota.bytesAvailable);
 
     if (!query->exec()) {
         qCWarning(lcDb) << "database error:" << query->error();
@@ -1567,6 +1662,38 @@ int SyncJournalDb::getFileRecordCount()
     return -1;
 }
 
+bool SyncJournalDb::ensureCorrectEncryptionStatus()
+{
+    qCInfo(lcDb) << "migration: ensure proper encryption status in database";
+
+    const auto folderQuery = _queryManager.get(PreparedSqlQueryManager::FolderUpdateInvalidEncryptionStatus, QByteArrayLiteral("UPDATE "
+                                                                                                                         "metadata AS invalidItem "
+                                                                                                                         "SET "
+                                                                                                                         "isE2eEncrypted = 4 "
+                                                                                                                         "WHERE "
+                                                                                                                         "invalidItem.isE2eEncrypted = 0 AND "
+                                                                                                                         "(invalidItem.type = 0 OR invalidItem.type = 2) AND "
+                                                                                                                         "EXISTS ( "
+                                                                                                                         "SELECT * "
+                                                                                                                         "FROM "
+                                                                                                                         "metadata parentFolder "
+                                                                                                                         "WHERE "
+                                                                                                                         "parent_hash(invalidItem.path) = parentFolder.phash AND "
+                                                                                                                         "parentFolder.isE2eEncrypted <> 0)"),
+                                         _db);
+    if (!folderQuery) {
+        qCWarning(lcDb) << "database error:" << folderQuery->error();
+        return false;
+    }
+
+    if (!folderQuery->exec()) {
+        qCWarning(lcDb) << "database error:" << folderQuery->error();
+        return false;
+    }
+
+    return true;
+}
+
 bool SyncJournalDb::updateFileRecordChecksum(const QString &filename,
     const QByteArray &contentChecksum,
     const QByteArray &contentChecksumType)
@@ -1644,6 +1771,58 @@ bool SyncJournalDb::updateLocalMetadata(const QString &filename,
         return false;
     }
     return true;
+}
+
+bool SyncJournalDb::hasFileIds(const QList<qint64> &fileIds)
+{
+    if (fileIds.isEmpty()) {
+        // no need to check the db if no file id matches
+        return false;
+    }
+
+    QMutexLocker locker(&_mutex);
+
+    if (!checkConnect()) {
+        return false;
+    }
+
+    // quick workaround for looking up pure numeric file IDs: cast it to integer
+    //
+    // using `IN` with a list of IDs does not allow for a prepared query: the execution plan
+    // would be different depending on the amount of elements as each element is added to a
+    // temporary table one-by-one.  with `json_each()`, all that changes is one string
+    // parameter which is perfect for creating a prepared query :)
+    const auto query = _queryManager.get(
+        PreparedSqlQueryManager::HasFileIdQuery,
+        "SELECT 1 FROM metadata, json_each(?1) file_ids WHERE CAST(metadata.fileid AS INTEGER) = CAST(file_ids.value AS INTEGER) LIMIT 1;"_ba,
+        _db
+    );
+    if (!query) {
+        qCWarning(lcDb) << "database error:" << query->error();
+        return false;
+    }
+
+    // we have a prepared query, so let's build up a JSON array of file IDs to check for.
+    // Strings are used here to avoid any surprises during serialisation: JSON only really
+    // has a double type, and who knows when the representation changes to the +e* variant.
+    QJsonArray fileIdStrings = {};
+    for (const auto &fileId : fileIds) {
+        fileIdStrings.append(QString::number(fileId));
+    }
+    const auto fileIdsParameter = QJsonDocument(fileIdStrings).toJson(QJsonDocument::Compact);
+    query->bindValue(1, fileIdsParameter);
+
+    if (!query->exec()) {
+        qCWarning(lcDb) << "file id query failed:" << query->error();
+        return false;
+    }
+
+    if (query->next().hasData && query->intValue(0) == 1) {
+        // at least one file ID from the passed list is present
+        return true;
+    }
+
+    return false;
 }
 
 Optional<SyncJournalDb::HasHydratedDehydrated> SyncJournalDb::hasHydratedOrDehydratedFiles(const QByteArray &filename)
@@ -2259,6 +2438,42 @@ void SyncJournalDb::setSelectiveSyncList(SyncJournalDb::SelectiveSyncListType ty
     }
 
     commitInternal(QStringLiteral("setSelectiveSyncList"));
+}
+
+QStringList SyncJournalDb::addSelectiveSyncLists(SelectiveSyncListType type, const QString &path)
+{
+    bool ok = false;
+
+    const auto pathWithTrailingSlash = Utility::trailingSlashPath(path);
+
+    const auto blackListList = getSelectiveSyncList(type, &ok);
+    auto blackListSet = QSet<QString>{blackListList.begin(), blackListList.end()};
+    blackListSet.insert(pathWithTrailingSlash);
+    auto blackList = blackListSet.values();
+    blackList.sort();
+    setSelectiveSyncList(type, blackList);
+
+    qCInfo(lcSql()) << "add" << path << "into" << type << blackList;
+
+    return blackList;
+}
+
+QStringList SyncJournalDb::removeSelectiveSyncLists(SelectiveSyncListType type, const QString &path)
+{
+    bool ok = false;
+
+    const auto pathWithTrailingSlash = Utility::trailingSlashPath(path);
+
+    const auto blackListList = getSelectiveSyncList(type, &ok);
+    auto blackListSet = QSet<QString>{blackListList.begin(), blackListList.end()};
+    blackListSet.remove(pathWithTrailingSlash);
+    auto blackList = blackListSet.values();
+    blackList.sort();
+    setSelectiveSyncList(type, blackList);
+
+    qCInfo(lcSql()) << "remove" << path << "into" << type << blackList;
+
+    return blackList;
 }
 
 void SyncJournalDb::avoidRenamesOnNextSync(const QByteArray &path)

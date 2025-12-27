@@ -15,6 +15,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+using namespace Qt::StringLiterals;
+
 namespace OCC {
 
 namespace {
@@ -66,7 +68,7 @@ void UserInfo::slotRequestFailed()
 
 bool UserInfo::canGetInfo() const
 {
-    if (!_accountState || !_active) {
+    if (!_accountState || !_active || !_accountState->account() || _accountState->account()->isPublicShareLink()) {
         return false;
     }
     AccountPtr account = _accountState->account();
@@ -96,11 +98,11 @@ void UserInfo::slotFetchInfo()
 
 void UserInfo::slotUpdateLastInfo(const QJsonDocument &json)
 {
-    auto objData = json.object().value("ocs").toObject().value("data").toObject();
+    auto objData = json.object().value("ocs"_L1).toObject().value("data"_L1).toObject();
 
     AccountPtr account = _accountState->account();
 
-    if (const auto newUserId = objData.value("id").toString(); !newUserId.isEmpty()) {
+    if (const auto newUserId = objData.value("id"_L1).toString(); !newUserId.isEmpty()) {
         if (QString::compare(account->davUser(), newUserId, Qt::CaseInsensitive) != 0) {
             // TODO: the error message should be in the UI
             qInfo() << "Authenticated with the wrong user! Please login with the account:" << account->prettyName();
@@ -112,14 +114,14 @@ void UserInfo::slotUpdateLastInfo(const QJsonDocument &json)
         account->setDavUser(newUserId);
     }
 
-    QString displayName = objData.value("display-name").toString();
+    QString displayName = objData.value("display-name"_L1).toString();
     if (!displayName.isEmpty()) {
         account->setDavDisplayName(displayName);
     }
 
-    auto objQuota = objData.value("quota").toObject();
-    qint64 used = objQuota.value("used").toDouble();
-    qint64 total = objQuota.value("quota").toDouble();
+    auto objQuota = objData.value("quota"_L1).toObject();
+    qint64 used = objQuota.value("used"_L1).toDouble();
+    qint64 total = objQuota.value("quota"_L1).toDouble();
 
     if(_lastInfoReceived.isNull() || _lastQuotaUsedBytes != used || _lastQuotaTotalBytes != total) {
         _lastQuotaUsedBytes = used;
@@ -130,7 +132,7 @@ void UserInfo::slotUpdateLastInfo(const QJsonDocument &json)
     _jobRestartTimer.start(defaultIntervalT);
     _lastInfoReceived = QDateTime::currentDateTime();
 
-    if(_fetchAvatarImage) {
+    if(_fetchAvatarImage && !account->isPublicShareLink()) {
         auto *job = new AvatarJob(account, account->davUser(), 128, this);
         job->setTimeout(20 * 1000);
         QObject::connect(job, &AvatarJob::avatarPixmap, this, &UserInfo::slotAvatarImage);

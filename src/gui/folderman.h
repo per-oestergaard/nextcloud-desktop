@@ -26,6 +26,8 @@ class TestFolderStatusModel;
 class ShareTestHelper;
 class EndToEndTestHelper;
 class TestSyncConflictsModel;
+class TestRemoteWipe;
+class FolderManTestHelper;
 
 namespace OCC {
 
@@ -328,6 +330,7 @@ private slots:
 
     void slotSetupPushNotifications(const OCC::Folder::Map &);
     void slotProcessFilesPushNotification(OCC::Account *account);
+    void slotProcessFileIdsPushNotification(OCC::Account *account, const QList<qint64> &fileIds);
     void slotConnectToPushNotifications(const OCC::AccountPtr &account);
 
     void slotLeaveShare(const QString &localFile, const QByteArray &folderToken = {});
@@ -413,6 +416,8 @@ private:
     friend class ::ShareTestHelper;
     friend class ::EndToEndTestHelper;
     friend class ::TestFolderStatusModel;
+    friend class ::TestRemoteWipe;
+    friend class ::FolderManTestHelper;
 };
 
 } // namespace OCC

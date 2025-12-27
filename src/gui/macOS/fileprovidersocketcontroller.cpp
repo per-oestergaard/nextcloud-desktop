@@ -93,12 +93,13 @@ void FileProviderSocketController::parseReceivedLine(const QString &receivedLine
             domainIdentifier.replace(portColonPos, 1, ':');
         }
 
-        _accountState = FileProviderDomainManager::accountStateFromFileProviderDomainIdentifier(domainIdentifier);
+        _accountState = AccountManager::instance()->accountFromFileProviderDomainIdentifier(domainIdentifier);
         sendIgnoreList();
         sendAccountDetails();
-        reportSyncState("SYNC_PREPARING");
+        reportSyncState("SYNC_FINISHED");
         return;
     } else if (command == "FILE_PROVIDER_DOMAIN_SYNC_STATE_CHANGE") {
+        qCDebug(lcFileProviderSocketController) << "Received FILE_PROVIDER_DOMAIN_SYNC_STATE_CHANGE:" << argument;
         reportSyncState(argument);
         return;
     }
@@ -193,7 +194,7 @@ void FileProviderSocketController::sendNotAuthenticated() const
     const auto account = _accountState->account();
     Q_ASSERT(account);
 
-    qCDebug(lcFileProviderSocketController) << "About to send not authenticated message to file provider extension"
+    qCWarning(lcFileProviderSocketController) << "About to send not authenticated message to file provider extension"
                                             << account->displayName();
 
     const auto message = QString(QStringLiteral("ACCOUNT_NOT_AUTHENTICATED"));

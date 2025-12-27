@@ -56,7 +56,7 @@
 #include <QQuickItem>
 #include <QQmlContext>
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include "foregroundbackground_interface.h"
 #endif
 
@@ -136,11 +136,11 @@ ownCloudGui::ownCloudGui(Application *parent)
     qmlRegisterType<SyncConflictsModel>("com.nextcloud.desktopclient", 1, 0, "SyncConflictsModel");
 
     qmlRegisterUncreatableType<QAbstractItemModel>("com.nextcloud.desktopclient", 1, 0, "QAbstractItemModel", "QAbstractItemModel");
-    qmlRegisterUncreatableType<Activity>("com.nextcloud.desktopclient", 1, 0, "Activity", "Activity");
-    qmlRegisterUncreatableType<TalkNotificationData>("com.nextcloud.desktopclient", 1, 0, "TalkNotificationData", "TalkNotificationData");
+    qmlRegisterUncreatableType<Activity>("com.nextcloud.desktopclient", 1, 0, "activity", "Activity");
+    qmlRegisterUncreatableType<TalkNotificationData>("com.nextcloud.desktopclient", 1, 0, "talkNotificationData", "TalkNotificationData");
     qmlRegisterUncreatableType<UnifiedSearchResultsListModel>("com.nextcloud.desktopclient", 1, 0, "UnifiedSearchResultsListModel", "UnifiedSearchResultsListModel");
-    qmlRegisterUncreatableType<UserStatus>("com.nextcloud.desktopclient", 1, 0, "UserStatus", "Access to Status enum");
-    qmlRegisterUncreatableType<Sharee>("com.nextcloud.desktopclient", 1, 0, "Sharee", "Access to Type enum");
+    qmlRegisterUncreatableType<UserStatus>("com.nextcloud.desktopclient", 1, 0, "userStatus", "Access to Status enum");
+    qmlRegisterUncreatableType<Sharee>("com.nextcloud.desktopclient", 1, 0, "sharee", "Access to Type enum");
     qmlRegisterUncreatableType<ClientSideEncryptionTokenSelector>("com.nextcloud.desktopclient", 1, 0, "ClientSideEncryptionTokenSelector", "Access to the certificate selector");
 
     qRegisterMetaType<ActivityListModel *>("ActivityListModel*");
@@ -287,10 +287,13 @@ void ownCloudGui::slotComputeOverallSyncStatus()
     bool allPaused = true;
     QVector<AccountStatePtr> problemAccounts;
 
-    for (const auto &account : AccountManager::instance()->accounts()) {
+    const auto &allAccounts = AccountManager::instance()->accounts();
+
+    for (const auto &account : allAccounts) {
         if (!account->isSignedOut()) {
             allSignedOut = false;
         }
+
         if (!account->isConnected()) {
             problemAccounts.append(account);
         }
@@ -307,39 +310,43 @@ void ownCloudGui::slotComputeOverallSyncStatus()
     QList<QString> successFileProviderAccounts;
     QList<QString> idleFileProviderAccounts;
 
-    if (Mac::FileProvider::fileProviderAvailable()) {
-        for (const auto &accountState : AccountManager::instance()->accounts()) {
-            const auto accountFpId = Mac::FileProviderDomainManager::fileProviderDomainIdentifierFromAccountState(accountState);
-            if (!Mac::FileProviderSettingsController::instance()->vfsEnabledForAccount(accountFpId)) {
-                continue;
-            }
-            allPaused = false;
-            const auto fileProvider = Mac::FileProvider::instance();
+    for (const auto &accountState : allAccounts) {
+        const auto account = accountState->account();
+        const auto userIdAtHostWithPort = account->userIdAtHostWithPort();
 
-            if (!fileProvider->xpc()->fileProviderExtReachable(accountFpId)) {
-                problemFileProviderAccounts.append(accountFpId);
-            } else {
-                switch (fileProvider->socketServer()->latestReceivedSyncStatusForAccount(accountState->account())) {
-                case SyncResult::Undefined:
-                case SyncResult::NotYetStarted:
-                    idleFileProviderAccounts.append(accountFpId);
-                    break;
-                case SyncResult::SyncPrepare:
-                case SyncResult::SyncRunning:
-                case SyncResult::SyncAbortRequested:
-                    syncingFileProviderAccounts.append(accountFpId);
-                    break;
-                case SyncResult::Success:
-                    successFileProviderAccounts.append(accountFpId);
-                    break;
-                case SyncResult::Problem:
-                case SyncResult::Error:
-                case SyncResult::SetupError:
-                    problemFileProviderAccounts.append(accountFpId);
-                    break;
-                case SyncResult::Paused: // This is not technically possible with VFS
-                    break;
-                }
+        if (!Mac::FileProviderSettingsController::instance()->vfsEnabledForAccount(userIdAtHostWithPort)) {
+            continue;
+        }
+
+        allPaused = false;
+        const auto fileProvider = Mac::FileProvider::instance();
+        const auto accountFpId = account->fileProviderDomainIdentifier();
+        const auto displayName = account->displayName();
+        const auto accountTooltipLabel = displayName.isEmpty() ? userIdAtHostWithPort : displayName;
+
+        if (!fileProvider->xpc()->fileProviderDomainReachable(accountFpId)) {
+            problemFileProviderAccounts.append(accountTooltipLabel);
+        } else {
+            switch (fileProvider->socketServer()->latestReceivedSyncStatusForAccount(accountState->account())) {
+            case SyncResult::Undefined:
+            case SyncResult::NotYetStarted:
+                idleFileProviderAccounts.append(accountTooltipLabel);
+                break;
+            case SyncResult::SyncPrepare:
+            case SyncResult::SyncRunning:
+            case SyncResult::SyncAbortRequested:
+                syncingFileProviderAccounts.append(accountTooltipLabel);
+                break;
+            case SyncResult::Success:
+                successFileProviderAccounts.append(accountTooltipLabel);
+                break;
+            case SyncResult::Problem:
+            case SyncResult::Error:
+            case SyncResult::SetupError:
+                problemFileProviderAccounts.append(accountTooltipLabel);
+                break;
+            case SyncResult::Paused: // This is not technically possible with VFS
+                break;
             }
         }
     }
@@ -608,7 +615,7 @@ void ownCloudGui::slotShowSettings()
         _settingsDialog = new SettingsDialog(this);
         _settingsDialog->setAttribute(Qt::WA_DeleteOnClose, true);
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
         auto *fgbg = new ForegroundBackground();
         _settingsDialog->installEventFilter(fgbg);
 #endif

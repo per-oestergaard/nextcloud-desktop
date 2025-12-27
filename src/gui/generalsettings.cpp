@@ -18,13 +18,14 @@
 #if defined(BUILD_UPDATER)
 #include "updater/updater.h"
 #include "updater/ocupdater.h"
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 // FIXME We should unify those, but Sparkle does everything behind the scene transparently
 #include "updater/sparkleupdater.h"
 #endif
 #endif
 
 #ifdef BUILD_FILE_PROVIDER_MODULE
+#include "macOS/fileproviderutils.h"
 #include "macOS/fileprovider.h"
 #include "macOS/fileprovidersettingscontroller.h"
 #endif
@@ -39,11 +40,18 @@
 #include <QMessageBox>
 #include <QNetworkProxy>
 #include <QDir>
+#include <QDirIterator>
 #include <QScopedValueRollback>
 #include <QMessageBox>
 
 #include <KZip>
 #include <chrono>
+
+Q_LOGGING_CATEGORY(lcGeneralSettings, "com.nextcloud.settings.general")
+
+#ifdef Q_OS_MACOS
+#include "common/utility_mac_sandbox.h"
+#endif
 
 namespace {
 struct ZipEntry {
@@ -117,57 +125,110 @@ QVector<ZipEntry> createDebugArchiveFileList()
 
 bool createDebugArchive(const QString &filename)
 {
-    const auto fileInfo = QFileInfo(filename);
-    const auto dirInfo = QFileInfo(fileInfo.dir().absolutePath());
-    if (!dirInfo.isWritable()) {
+    const auto entries = createDebugArchiveFileList();
+
+    // Create the ZIP archive in a temporary directory first
+    const auto tempDir = QDir::temp();
+    const auto tempFilePath = tempDir.filePath(QStringLiteral("nextcloud-debug-archive-temp.zip"));
+    
+    KZip zip(tempFilePath);
+
+    if (!zip.open(QIODevice::WriteOnly)) {
+        qWarning() << "Failed to open debug archive for writing:"
+                 << tempFilePath
+                 << "because of error:"
+                 << zip.errorString();
+
         QMessageBox::critical(
             nullptr,
             QObject::tr("Failed to create debug archive"),
             QObject::tr("Could not create debug archive in selected location!"),
             QMessageBox::Ok
         );
+
         return false;
     }
-
-    const auto entries = createDebugArchiveFileList();
-
-    KZip zip(filename);
-    zip.open(QIODevice::WriteOnly);
 
     for (const auto &entry : entries) {
         zip.addLocalFile(entry.localFilename, entry.zipFilename);
     }
 
 #ifdef BUILD_FILE_PROVIDER_MODULE
-    const auto fileProvider = OCC::Mac::FileProvider::instance();
-    if (fileProvider && fileProvider->fileProviderAvailable()) {
-        const auto tempDir = QTemporaryDir();
-        const auto xpc = fileProvider->xpc();
-        const auto vfsAccounts = OCC::Mac::FileProviderSettingsController::instance()->vfsEnabledAccounts();
-        for (const auto &accountUserIdAtHost : vfsAccounts) {
-            const auto accountState = OCC::AccountManager::instance()->accountFromUserId(accountUserIdAtHost);
-            if (!accountState) {
-                qWarning() << "Could not find account for" << accountUserIdAtHost;
-                continue;
-            }
-            const auto account = accountState->account();
-            const auto vfsLogFilename = QStringLiteral("macOS_vfs_%1.log").arg(account->davUser());
-            const auto vfsLogPath = tempDir.filePath(vfsLogFilename);
-            xpc->createDebugArchiveForExtension(accountUserIdAtHost, vfsLogPath);
-            zip.addLocalFile(vfsLogPath, vfsLogFilename);
+    qDebug() << "Trying to add file provider domain database and log files...";
+    const auto fileProviderDomainsSupportDirectory = OCC::Mac::FileProviderUtils::fileProviderDomainsSupportDirectory();
+
+    if (fileProviderDomainsSupportDirectory.exists()) {
+        // Recursively add all files from the container log directory
+        QDirIterator it(fileProviderDomainsSupportDirectory.path(), QStringList() << "*.jsonl" << "*.realm", QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+
+        while (it.hasNext()) {
+            const auto filePath = it.next();
+
+            // Calculate relative path from the base container log  directory
+            const auto relativePath = fileProviderDomainsSupportDirectory.relativeFilePath(filePath);
+            const auto zipPath = QStringLiteral("File Provider Domains/%1").arg(relativePath);
+
+            zip.addLocalFile(filePath, zipPath);
+            qDebug() << "Added file from" << filePath;
         }
+    } else {
+        qWarning() << "file provider domain container log directory not found at" << fileProviderDomainsSupportDirectory.path();
     }
 #endif
 
     const auto clientParameters = QCoreApplication::arguments().join(' ').toUtf8();
-    zip.prepareWriting("__nextcloud_client_parameters.txt", {}, {}, clientParameters.size());
+    zip.prepareWriting("_client_parameters.txt", {}, {}, clientParameters.size());
     zip.writeData(clientParameters, clientParameters.size());
     zip.finishWriting(clientParameters.size());
 
     const auto buildInfo = QString(OCC::Theme::instance()->aboutInfo() + "\n\n" + OCC::Theme::instance()->aboutDetails()).toUtf8();
-    zip.prepareWriting("__nextcloud_client_buildinfo.txt", {}, {}, buildInfo.size());
+    zip.prepareWriting("_client_buildinfo.txt", {}, {}, buildInfo.size());
     zip.writeData(buildInfo, buildInfo.size());
     zip.finishWriting(buildInfo.size());
+    
+    zip.close();
+    
+    // Now move the temporary ZIP file to the desired destination
+    QFile tempFile(tempFilePath);
+    if (!tempFile.exists()) {
+        qWarning() << "Temporary debug archive file does not exist:" << tempFilePath;
+        QMessageBox::critical(
+            nullptr,
+            QObject::tr("Failed to create debug archive"),
+            QObject::tr("Could not create debug archive in temporary location!"),
+            QMessageBox::Ok
+        );
+        return false;
+    }
+    
+    // Remove destination file if it already exists
+    if (QFile::exists(filename)) {
+        if (!QFile::remove(filename)) {
+            qWarning() << "Failed to remove existing file at destination:" << filename;
+            tempFile.remove();
+            QMessageBox::critical(
+                nullptr,
+                QObject::tr("Failed to create debug archive"),
+                QObject::tr("Could not remove existing file at destination!"),
+                QMessageBox::Ok
+            );
+            return false;
+        }
+    }
+    
+    // Move the temporary file to the final destination
+    if (!tempFile.rename(filename)) {
+        qWarning() << "Failed to move debug archive from" << tempFilePath << "to" << filename;
+        tempFile.remove();
+        QMessageBox::critical(
+            nullptr,
+            QObject::tr("Failed to create debug archive"),
+            QObject::tr("Could not move debug archive to selected location!"),
+            QMessageBox::Ok
+        );
+        return false;
+    }
+    
     return true;
 }
 
@@ -182,7 +243,7 @@ GeneralSettings::GeneralSettings(QWidget *parent)
     _ui->setupUi(this);
 
     updatePollIntervalVisibility();
-    
+
     connect(_ui->serverNotificationsCheckBox, &QAbstractButton::toggled,
         this, &GeneralSettings::slotToggleOptionalServerNotifications);
     _ui->serverNotificationsCheckBox->setToolTip(tr("Server notifications that require attention."));
@@ -195,10 +256,13 @@ GeneralSettings::GeneralSettings(QWidget *parent)
         this, &GeneralSettings::slotToggleCallNotifications);
     _ui->callNotificationsCheckBox->setToolTip(tr("Show call notification dialogs."));
 
+    connect(_ui->quotaWarningNotificationsCheckBox, &QAbstractButton::toggled, this, &GeneralSettings::slotToggleQuotaWarningNotifications);
+    _ui->quotaWarningNotificationsCheckBox->setToolTip(tr("Show notification when quota usage exceeds 80%."));
+
     connect(_ui->showInExplorerNavigationPaneCheckBox, &QAbstractButton::toggled, this, &GeneralSettings::slotShowInExplorerNavigationPane);
 
     // Rename 'Explorer' appropriately on non-Windows
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     QString txt = _ui->showInExplorerNavigationPaneCheckBox->text();
     txt.replace(QString::fromLatin1("Explorer"), QString::fromLatin1("Finder"));
     _ui->showInExplorerNavigationPaneCheckBox->setText(txt);
@@ -208,7 +272,7 @@ GeneralSettings::GeneralSettings(QWidget *parent)
         _ui->autostartCheckBox->setChecked(hasSystemAutoStart);
         _ui->autostartCheckBox->setDisabled(hasSystemAutoStart);
         _ui->autostartCheckBox->setToolTip(tr("You cannot disable autostart because system-wide autostart is enabled."));
-    } else {       
+    } else {
         connect(_ui->autostartCheckBox, &QAbstractButton::toggled, this, &GeneralSettings::slotToggleLaunchOnStartup);
         _ui->autostartCheckBox->setChecked(ConfigFile().launchOnSystemStartup());
     }
@@ -236,7 +300,7 @@ GeneralSettings::GeneralSettings(QWidget *parent)
     connect(_ui->newExternalStorage, &QAbstractButton::toggled, this, &GeneralSettings::saveMiscSettings);
     connect(_ui->moveFilesToTrashCheckBox, &QAbstractButton::toggled, this, &GeneralSettings::saveMiscSettings);
     connect(_ui->remotePollIntervalSpinBox, &QSpinBox::valueChanged, this, &GeneralSettings::slotRemotePollIntervalChanged);
-    
+
     // Hide on non-Windows, or WindowsVersion < 10.
     // The condition should match the default value of ConfigFile::showInExplorerNavigationPane.
 #ifdef Q_OS_WIN
@@ -298,6 +362,8 @@ void GeneralSettings::loadMiscSettings()
     _ui->chatNotificationsCheckBox->setChecked(cfgFile.showChatNotifications());
     _ui->callNotificationsCheckBox->setEnabled(cfgFile.optionalServerNotifications());
     _ui->callNotificationsCheckBox->setChecked(cfgFile.showCallNotifications());
+    _ui->quotaWarningNotificationsCheckBox->setEnabled(cfgFile.optionalServerNotifications());
+    _ui->quotaWarningNotificationsCheckBox->setChecked(cfgFile.showQuotaWarningNotifications());
     _ui->showInExplorerNavigationPaneCheckBox->setChecked(cfgFile.showInExplorerNavigationPane());
     _ui->newExternalStorage->setChecked(cfgFile.confirmExternalStorage());
     _ui->monoIconsCheckBox->setChecked(cfgFile.monoIcons());
@@ -313,9 +379,9 @@ void GeneralSettings::loadMiscSettings()
     _ui->newExternalStorage->setChecked(cfgFile.confirmExternalStorage());
     _ui->monoIconsCheckBox->setChecked(cfgFile.monoIcons());
 
-    const auto interval = cfgFile.remotePollInterval(); 
+    const auto interval = cfgFile.remotePollInterval();
     _ui->remotePollIntervalSpinBox->setValue(static_cast<int>(interval.count() / 1000));
-    updatePollIntervalVisibility(); 
+    updatePollIntervalVisibility();
 }
 
 #if defined(BUILD_UPDATER)
@@ -385,7 +451,7 @@ void GeneralSettings::slotUpdateInfo()
                                       ocupdater->downloadState() != OCUpdater::Downloading &&
                                       ocupdater->downloadState() != OCUpdater::DownloadComplete);
     }
-#if defined(Q_OS_MAC) && defined(HAVE_SPARKLE)
+#if defined(Q_OS_MACOS) && defined(HAVE_SPARKLE)
     else if (const auto sparkleUpdater = qobject_cast<SparkleUpdater *>(updater)) {
         connect(sparkleUpdater, &SparkleUpdater::statusChanged, this, &GeneralSettings::slotUpdateInfo, Qt::UniqueConnection);
         _ui->updateStateLabel->setText(sparkleUpdater->statusString());
@@ -405,7 +471,7 @@ void GeneralSettings::setAndCheckNewUpdateChannel(const QString &newChannel) {
         updater->setUpdateUrl(Updater::updateUrl());
         updater->checkForUpdate();
     }
-#if defined(Q_OS_MAC) && defined(HAVE_SPARKLE)
+#if defined(Q_OS_MACOS) && defined(HAVE_SPARKLE)
     else if (auto updater = qobject_cast<SparkleUpdater *>(Updater::instance())) {
         updater->setUpdateUrl(Updater::updateUrl());
         updater->checkForUpdate();
@@ -500,7 +566,7 @@ void GeneralSettings::slotUpdateChannelChanged()
 
 void GeneralSettings::slotUpdateCheckNow()
 {
-#if defined(Q_OS_MAC) && defined(HAVE_SPARKLE)
+#if defined(Q_OS_MACOS) && defined(HAVE_SPARKLE)
     auto *updater = qobject_cast<SparkleUpdater *>(Updater::instance());
 #else
     auto *updater = qobject_cast<OCUpdater *>(Updater::instance());
@@ -580,6 +646,7 @@ void GeneralSettings::slotToggleOptionalServerNotifications(bool enable)
     cfgFile.setOptionalServerNotifications(enable);
     _ui->chatNotificationsCheckBox->setEnabled(enable);
     _ui->callNotificationsCheckBox->setEnabled(enable);
+    _ui->quotaWarningNotificationsCheckBox->setEnabled(enable);
 }
 
 void GeneralSettings::slotToggleChatNotifications(bool enable)
@@ -592,6 +659,12 @@ void GeneralSettings::slotToggleCallNotifications(bool enable)
 {
     ConfigFile cfgFile;
     cfgFile.setShowCallNotifications(enable);
+}
+
+void GeneralSettings::slotToggleQuotaWarningNotifications(bool enable)
+{
+    ConfigFile cfgFile;
+    cfgFile.setShowQuotaWarningNotifications(enable);
 }
 
 void GeneralSettings::slotShowInExplorerNavigationPane(bool checked)
@@ -619,22 +692,38 @@ void GeneralSettings::slotIgnoreFilesEditor()
 
 void GeneralSettings::slotCreateDebugArchive()
 {
-    const auto filename = QFileDialog::getSaveFileName(
+    const auto destination = QFileDialog::getSaveFileUrl(
         this,
         tr("Create Debug Archive"),
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
         tr("Zip Archives") + " (*.zip)"
     );
 
-    if (filename.isEmpty()) {
+    if (destination.path().isEmpty()) {
         return;
     }
 
-    if (createDebugArchive(filename)) {
+#ifdef Q_OS_MACOS
+    // On macOS with app sandbox, we need to explicitly access the security-scoped resource
+    // that was selected by the user via the file dialog. This is required even though we have
+    // the com.apple.security.files.user-selected.read-write entitlement.
+    auto scopedAccess = Utility::MacSandboxSecurityScopedAccess::create(destination);
+    
+    if (!scopedAccess->isValid()) {
+        QMessageBox::critical(
+            this,
+            tr("Failed to Access File"),
+            tr("Could not access the selected location. Please try again or choose a different location.")
+        );
+        return;
+    }
+#endif
+
+    if (createDebugArchive(destination.path())) {
         QMessageBox::information(
             this,
             tr("Debug Archive Created"),
-            tr("Redact information deemed sensitive before sharing! Debug archive created at %1").arg(filename)
+            tr("Redact information deemed sensitive before sharing! Debug archive created at %1").arg(destination.toString())
         );
     }
 }
@@ -669,7 +758,7 @@ void GeneralSettings::customizeStyle()
 #endif
 }
 
-void GeneralSettings::slotRemotePollIntervalChanged(int seconds) 
+void GeneralSettings::slotRemotePollIntervalChanged(int seconds)
 {
     if (_currentlyLoading) {
         return;
@@ -680,7 +769,7 @@ void GeneralSettings::slotRemotePollIntervalChanged(int seconds)
     cfgFile.setRemotePollInterval(interval);
 }
 
-void GeneralSettings::updatePollIntervalVisibility() 
+void GeneralSettings::updatePollIntervalVisibility()
 {
     const auto accounts = AccountManager::instance()->accounts();
     const auto pushAvailable = std::any_of(accounts.cbegin(), accounts.cend(), [](const AccountStatePtr &accountState) -> bool {

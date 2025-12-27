@@ -11,22 +11,31 @@ import OSLog
 
 @objc class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     let domain: NSFileProviderDomain
-    let ncKit = NextcloudKit.shared
-    let appGroupIdentifier = Bundle.main.object(forInfoDictionaryKey: "SocketApiPrefix") as? String
+
+    let keychain: Keychain
+    let log: any FileProviderLogging
+    let logger: FileProviderLogger
+
+    ///
+    /// NextcloudKit instance used by this file provider extension object.
+    ///
+    let ncKit: NextcloudKit
+
     var ncAccount: Account?
     var dbManager: FilesDatabaseManager?
     var changeObserver: RemoteChangeObserver?
     var ignoredFiles: IgnoredFilesMatcher?
     lazy var ncKitBackground = NKBackground(nkCommonInstance: ncKit.nkCommonInstance)
+
     lazy var socketClient: LocalSocketClient? = {
-        guard let containerUrl = pathForAppGroupContainer() else {
-            Logger.fileProviderExtension.critical("Won't start socket client, no container url")
+        guard let containerUrl = FileManager.default.applicationGroupContainer() else {
+            logger.fault("Won't start socket client, no container URL available!")
             return nil;
         }
 
-        let socketPath = containerUrl.appendingPathComponent(
-            ".fileprovidersocket", conformingTo: .archive)
-        let lineProcessor = FileProviderSocketLineProcessor(delegate: self)
+        let socketPath = containerUrl.appendingPathComponent("fps", conformingTo: .archive)
+        let lineProcessor = FileProviderSocketLineProcessor(delegate: self, log: log)
+
         return LocalSocketClient(socketPath: socketPath.path, lineProcessor: lineProcessor)
     }()
 
@@ -39,13 +48,13 @@ import OSLog
     // This does lead to long load times when a file provider domain is initially configured.
     // We can instead do a fast enumeration where we only scan folders as the user navigates through
     // them, thereby avoiding this issue; the trade-off is that we will be unable to detect
-    // materialised file moves to unexplored folders, therefore deleting the item when we could have
+    // materialized file moves to unexplored folders, therefore deleting the item when we could have
     // just moved it instead.
     //
     // Since it's not desirable to cancel a long recursive enumeration half-way through, we do the
     // fast enumeration by default. We prompt the user on the client side to run a proper, full
     // enumeration if they want for safety.
-    lazy var config = FileProviderConfig(domainIdentifier: domain.identifier)
+    lazy var config = FileProviderDomainDefaults(identifier: domain.identifier, log: log)
 
     required init(domain: NSFileProviderDomain) {
         // The containing application must create a domain using 
@@ -53,18 +62,36 @@ import OSLog
         // application extension process, call `FileProviderExtension.init(domain:)` to instantiate
         // the extension for that domain, and call methods on the instance.
         self.domain = domain
+
+        // Set up logging.
+        self.log = FileProviderLog(fileProviderDomainIdentifier: domain.identifier)
+        self.logger = FileProviderLogger(category: "FileProviderExtension", log: log)
+        logger.debug("Initializing with domain identifier: \(domain.identifier.rawValue)")
+
+        // Set up NextcloudKit.
+        self.ncKit = NextcloudKit.shared
+
+        #if DEBUG
+        NKLogFileManager.configure(logLevel: .verbose)
+        #else
+        NKLogFileManager.configure(logLevel: .normal)
+        #endif
+
+        logger.info("Current NextcloudKit log file URL: \(NKLogFileManager.shared.currentLogFileURL().absoluteString)")
+
+        self.keychain = Keychain(log: log)
+
         super.init()
         socketClient?.start()
     }
 
     func invalidate() {
-        // TODO: cleanup any resources
-        Logger.fileProviderExtension.debug(
-            "Extension for domain \(self.domain.displayName, privacy: .public) is being torn down"
-        )
+        logger.debug("File provider extension process is being invalidated.")
     }
 
     func insertSyncAction(_ actionId: UUID) {
+        logger.debug("Inserting synchronization action.", [.item: actionId])
+
         actionsLock.lock()
         let oldActions = syncActions
         syncActions.insert(actionId)
@@ -73,6 +100,8 @@ import OSLog
     }
 
     func insertErrorAction(_ actionId: UUID) {
+        logger.debug("Inserting error action.", [.item: actionId])
+
         actionsLock.lock()
         let oldActions = syncActions
         syncActions.remove(actionId)
@@ -82,6 +111,8 @@ import OSLog
     }
 
     func removeSyncAction(_ actionId: UUID) {
+        logger.debug("Removing synchronization action.", [.item: actionId])
+
         actionsLock.lock()
         let oldActions = syncActions
         syncActions.remove(actionId)
@@ -92,29 +123,18 @@ import OSLog
 
     // MARK: - NSFileProviderReplicatedExtension protocol methods
 
-    func item(
-        for identifier: NSFileProviderItemIdentifier, 
-        request _: NSFileProviderRequest,
-        completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
-    ) -> Progress {
+    func item(for identifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest, completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void) -> Progress {
+        logger.debug("Received request for item.", [.item: identifier, .request: request])
+
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                """
-                Not fetching item for identifier: \(identifier.rawValue, privacy: .public)
-                as account not set up yet.
-                """
-            )
+            logger.error("Not fetching item because account not set up yet.", [.item: identifier])
             completionHandler(nil, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
+        
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not fetching item for identifier: \(identifier.rawValue, privacy: .public)
-                    as database is unreachable
-                """
-            )
-            completionHandler(nil, NSFileProviderError(.cannotSynchronize))
+            logger.error("Not fetching item because database is unavailable.", [.item: identifier])
+            completionHandler(nil, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
 
@@ -125,7 +145,8 @@ import OSLog
                 identifier: identifier,
                 account: ncAccount,
                 remoteInterface: ncKit,
-                dbManager: dbManager
+                dbManager: dbManager,
+                log: log
             ) {
                 progress.completedUnitCount = 1
                 completionHandler(item, nil)
@@ -146,16 +167,11 @@ import OSLog
     ) -> Progress {
         let actionId = UUID()
         insertSyncAction(actionId)
-
-        Logger.fileProviderExtension.debug(
-            "Received request to fetch contents of item with identifier: \(itemIdentifier.rawValue, privacy: .public)"
-        )
+        logger.debug("Received request to fetch contents of item.", [.item: itemIdentifier, .request: request])
 
         guard requestedVersion == nil else {
             // TODO: Add proper support for file versioning
-            Logger.fileProviderExtension.error(
-                "Can't return contents for a specific version as this is not supported."
-            )
+            logger.error("Can't return contents for a specific version as this is not supported.", [.item: itemIdentifier])
             insertErrorAction(actionId)
             completionHandler(
                 nil, 
@@ -166,23 +182,14 @@ import OSLog
         }
 
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                """
-                Not fetching contents for item: \(itemIdentifier.rawValue, privacy: .public)
-                as account not set up yet.
-                """
-            )
+            logger.error("Not fetching contents for item because account not set up yet.", [.item: itemIdentifier])
             insertErrorAction(actionId)
             completionHandler(nil, nil, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
+
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not fetching contents for item: \(itemIdentifier.rawValue, privacy: .public)
-                    as database is unreachable
-                """
-            )
+            logger.error("Not fetching contents for item because database is unavailable.", [.item: itemIdentifier])
             completionHandler(nil, nil, NSFileProviderError(.cannotSynchronize))
             return Progress()
         }
@@ -194,14 +201,11 @@ import OSLog
                 identifier: itemIdentifier,
                 account: ncAccount,
                 remoteInterface: ncKit,
-                dbManager: dbManager
+                dbManager: dbManager,
+                log: log
             ) else {
-                Logger.fileProviderExtension.error(
-                    """
-                    Not fetching contents for item: \(itemIdentifier.rawValue, privacy: .public)
-                        as item not found.
-                    """
-                )
+                logger.error("Not fetching contents for item because item was not found.", [.item: itemIdentifier])
+
                 completionHandler(
                     nil,
                     nil,
@@ -232,19 +236,12 @@ import OSLog
     ) -> Progress {
         let actionId = UUID()
         insertSyncAction(actionId)
-
-        let tempId = itemTemplate.itemIdentifier.rawValue
-        Logger.fileProviderExtension.debug(
-            """
-            Received create item request for item with identifier: \(tempId, privacy: .public)
-            and filename: \(itemTemplate.filename, privacy: .public)
-            """
-        )
+        logger.debug("Received request to create item.", [.item: itemTemplate, .name: itemTemplate.filename, .request: request])
 
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
+            logger.error(
                 """
-                Not creating item: \(itemTemplate.itemIdentifier.rawValue, privacy: .public)
+                Not creating item: \(itemTemplate.itemIdentifier.rawValue)
                 as account not set up yet
                 """
             )
@@ -254,25 +251,14 @@ import OSLog
         }
 
         guard let ignoredFiles else {
-            Logger.fileProviderExtension.error(
-                """
-                Not creating item for identifier:
-                    \(itemTemplate.itemIdentifier.rawValue, privacy: .public)
-                    as ignore list not set up yet.
-                """
-            )
+            logger.error("Not creating item for identifier: \(itemTemplate.itemIdentifier.rawValue) as ignore list not set up yet.")
             insertErrorAction(actionId)
             completionHandler(itemTemplate, [], false, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
 
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not creating item: \(itemTemplate.itemIdentifier.rawValue, privacy: .public)
-                    as database is unreachable
-                """
-            )
+            logger.error("Not creating item because database is unavailable.", [.item: itemTemplate.itemIdentifier])
             insertErrorAction(actionId)
             completionHandler(itemTemplate, [], false, NSFileProviderError(.cannotSynchronize))
             return Progress()
@@ -290,16 +276,31 @@ import OSLog
                 remoteInterface: ncKit,
                 ignoredFiles: ignoredFiles,
                 progress: progress,
-                dbManager: dbManager
+                dbManager: dbManager,
+                log: log
             )
 
-            if error != nil {
-                insertErrorAction(actionId)
-                signalEnumerator(completionHandler: { _ in })
-            } else {
+            if error == nil {
                 removeSyncAction(actionId)
+            } else {
+                // Do not consider the exclusion of a lock file a synchronization error resulting in a misleading status report because exclusion is expected.
+                // Though, the exclusion error code is only available starting with macOS 13, hence this logic reads a bit more cumbersome.
+
+                if #available(macOS 13.0, *) {
+                    if isLockFileName(itemTemplate.filename), let fileProviderError = error as? NSFileProviderError, fileProviderError.code == .excludedFromSync {
+                        removeSyncAction(actionId)
+                    } else {
+                        insertErrorAction(actionId)
+                        signalEnumerator(completionHandler: { _ in })
+                    }
+                } else {
+                    insertErrorAction(actionId)
+                    signalEnumerator(completionHandler: { _ in })
+                }
             }
 
+            logger.debug("Calling item creation completion handler.", [.item: item?.itemIdentifier, .name: item?.filename, .error: error])
+            
             completionHandler(
                 item ?? itemTemplate,
                 NSFileProviderItemFields(),
@@ -327,27 +328,17 @@ import OSLog
         insertSyncAction(actionId)
 
         let identifier = item.itemIdentifier
-        let ocId = identifier.rawValue
-        Logger.fileProviderExtension.debug(
-            """
-            Received modify item request for item with identifier: \(ocId, privacy: .public)
-            and filename: \(item.filename, privacy: .public)
-            """
-        )
+        logger.debug("Received request to modify item.", [.item: item, .request: request])
 
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                "Not modifying item: \(ocId, privacy: .public) as account not set up yet."
-            )
+            logger.error("Not modifying item because account not set up yet.", [.item: identifier])
             insertErrorAction(actionId)
             completionHandler(item, [], false, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
 
         guard let ignoredFiles else {
-            Logger.fileProviderExtension.error(
-                "Not modifying item: \(ocId, privacy: .public) as ignore list not set up yet."
-            )
+            logger.error("Not modifying item because ignore list not set up yet.", [.item: identifier])
             insertErrorAction(actionId)
             completionHandler(item, [], false, NSFileProviderError(.notAuthenticated))
             return Progress()
@@ -355,38 +346,35 @@ import OSLog
 
 
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not modifying item: \(ocId, privacy: .public)
-                    with filename: \(item.filename, privacy: .public)
-                    as database is unreachable
-                """
-            )
+            logger.error("Not modifying item because the database is unavailable.")
             insertErrorAction(actionId)
             completionHandler(item, [], false, NSFileProviderError(.cannotSynchronize))
             return Progress()
         }
 
         let progress = Progress()
+        
         Task {
             guard let existingItem = await Item.storedItem(
                 identifier: identifier,
                 account: ncAccount,
                 remoteInterface: ncKit,
-                dbManager: dbManager
+                dbManager: dbManager,
+                log: log
             ) else {
-                Logger.fileProviderExtension.error(
-                    "Not modifying item: \(ocId, privacy: .public) as item not found."
-                )
+                logger.error("Not modifying item because it was not found.", [.item: identifier])
                 insertErrorAction(actionId)
+                
                 completionHandler(
                     item,
                     [],
                     false,
                     NSError.fileProviderErrorForNonExistentItem(withIdentifier: item.itemIdentifier)
                 )
+                
                 return
             }
+            
             let (modifiedItem, error) = await existingItem.modify(
                 itemTarget: item,
                 baseVersion: baseVersion,
@@ -407,8 +395,10 @@ import OSLog
                 removeSyncAction(actionId)
             }
 
+            logger.debug("Calling item modification completion handler.", [.item: item.itemIdentifier, .name: item.filename, .error: error])
             completionHandler(modifiedItem ?? item, [], false, error)
         }
+        
         return progress
     }
 
@@ -416,38 +406,30 @@ import OSLog
         identifier: NSFileProviderItemIdentifier, 
         baseVersion _: NSFileProviderItemVersion,
         options _: NSFileProviderDeleteItemOptions = [], 
-        request _: NSFileProviderRequest,
+        request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
         let actionId = UUID()
         insertSyncAction(actionId)
 
-        Logger.fileProviderExtension.debug(
-            "Received delete request for item: \(identifier.rawValue, privacy: .public)"
-        )
+        logger.debug("Received request to delete item.", [.item: identifier, .request: request])
 
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                "Not deleting item \(identifier.rawValue, privacy: .public), account not set up yet"
-            )
+            logger.error("Not deleting item \(identifier.rawValue), account not set up yet")
             insertErrorAction(actionId)
             completionHandler(NSFileProviderError(.notAuthenticated))
             return Progress()
         }
 
         guard let ignoredFiles else {
-            Logger.fileProviderExtension.error(
-                "Not deleting \(identifier.rawValue, privacy: .public), ignore list not received"
-            )
+            logger.error("Not deleting \(identifier.rawValue), ignore list not received")
             insertErrorAction(actionId)
             completionHandler(NSFileProviderError(.notAuthenticated))
             return Progress()
         }
 
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                "Not deleting item \(identifier.rawValue, privacy: .public), db manager unavailable"
-            )
+            logger.error("Not deleting item \(identifier.rawValue), db manager unavailable")
             insertErrorAction(actionId)
             completionHandler(NSFileProviderError(.cannotSynchronize))
             return Progress()
@@ -459,65 +441,50 @@ import OSLog
                 identifier: identifier,
                 account: ncAccount,
                 remoteInterface: ncKit,
-                dbManager: dbManager
+                dbManager: dbManager,
+                log: log
             ) else {
-                Logger.fileProviderExtension.error(
-                    "Not deleting item \(identifier.rawValue, privacy: .public), item not found"
-                )
+                logger.error("Not deleting item because it was not found.", [.item: identifier])
                 insertErrorAction(actionId)
-                completionHandler(
-                    NSError.fileProviderErrorForNonExistentItem(withIdentifier: identifier)
-                )
+                completionHandler(NSError.fileProviderErrorForNonExistentItem(withIdentifier: identifier))
                 return
             }
+            
+            logger.debug("Found item for identifier.", [.item: identifier, .name: item.filename])
 
             guard config.trashDeletionEnabled || item.parentItemIdentifier != .trashContainer else {
-                Logger.fileProviderExtension.warning(
-                    """
-                    System requested deletion of item in trash, but deleting trash items is disabled.
-                        item: \(item.filename, privacy: .public)
-                    """
-                )
+                logger.info("System requested deletion of item in trash, but deleting trash items is disabled. item: \(item.filename)")
+                removeSyncAction(actionId)
                 completionHandler(NSError.fileProviderErrorForRejectedDeletion(of: item))
                 return
             }
-            let error = await item.delete(
-                domain: domain, ignoredFiles: ignoredFiles, dbManager: dbManager
-            )
+            
+            let error = await item.delete(domain: domain, ignoredFiles: ignoredFiles, dbManager: dbManager)
+            
             if error != nil {
                 insertErrorAction(actionId)
                 signalEnumerator(completionHandler: { _ in })
             } else {
                 removeSyncAction(actionId)
             }
+            
             progress.completedUnitCount = 1
+            logger.debug("Calling item deletion completion handler.", [.item: identifier, .name: item.filename, .error: error])
             completionHandler(error)
         }
         return progress
     }
 
-    func enumerator(
-        for containerItemIdentifier: NSFileProviderItemIdentifier, request _: NSFileProviderRequest
-    ) throws -> NSFileProviderEnumerator {
+    func enumerator(for containerItemIdentifier: NSFileProviderItemIdentifier, request: NSFileProviderRequest) throws -> NSFileProviderEnumerator {
+        logger.debug("System requested enumerator.", [.item: containerItemIdentifier])
+
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                """
-                Not providing enumerator for container
-                    with identifier \(containerItemIdentifier.rawValue, privacy: .public) yet
-                    as account not set up
-                """
-            )
+            logger.error("Not providing enumerator for container with identifier \(containerItemIdentifier.rawValue) yet as account not set up")
             throw NSFileProviderError(.notAuthenticated)
         }
 
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not providing enumerator for container
-                    with identifier \(containerItemIdentifier.rawValue, privacy: .public) yet
-                    as db manager is unavailable
-                """
-            )
+            logger.error("Not providing enumerator for container with identifier \(containerItemIdentifier.rawValue) yet as db manager is unavailable")
             throw NSFileProviderError(.cannotSynchronize)
         }
 
@@ -526,41 +493,32 @@ import OSLog
             account: ncAccount,
             remoteInterface: ncKit,
             dbManager: dbManager,
-            domain: domain
+            domain: domain,
+            log: log
         )
     }
 
     func materializedItemsDidChange(completionHandler: @escaping () -> Void) {
         guard let ncAccount else {
-            Logger.fileProviderExtension.error(
-                "Not purging stale local file metadatas, account not set up")
+            logger.error("Not purging stale local file metadatas, account not set up")
             completionHandler()
             return
         }
 
         guard let dbManager else {
-            Logger.fileProviderExtension.error(
-                """
-                Not purging stale local file metadatas.
-                    db manager unabilable for domain: \(self.domain.displayName, privacy: .public)
-                """
-            )
+            logger.error("Not purging stale local file metadatas. db manager unabilable for domain: \(self.domain.displayName)")
             completionHandler()
             return
         }
 
         guard let fpManager = NSFileProviderManager(for: domain) else {
-            Logger.fileProviderExtension.error(
-                "Could not get file provider manager for domain: \(self.domain.displayName, privacy: .public)"
-            )
+            logger.error("Could not get file provider manager for domain: \(self.domain.displayName)")
             completionHandler()
             return
         }
 
         let materialisedEnumerator = fpManager.enumeratorForMaterializedItems()
-        let materialisedObserver = MaterialisedEnumerationObserver(
-            ncKitAccount: ncAccount.ncKitAccount, dbManager: dbManager
-        ) { _, _ in
+        let materialisedObserver = MaterializedEnumerationObserver(account: ncAccount, dbManager: dbManager, log: log) { _, _ in
             completionHandler()
         }
         let startingPage = NSFileProviderPage(NSFileProviderPage.initialPageSortedByName as Data)
@@ -572,9 +530,7 @@ import OSLog
 
     func signalEnumerator(completionHandler: @escaping (_ error: Error?) -> Void) {
         guard let fpManager = NSFileProviderManager(for: domain) else {
-            Logger.fileProviderExtension.error(
-                "Could not get file provider manager for domain, could not signal enumerator. This might lead to future conflicts."
-            )
+            logger.error("Could not get file provider manager for domain, could not signal enumerator. This might lead to future conflicts.")
             return
         }
 

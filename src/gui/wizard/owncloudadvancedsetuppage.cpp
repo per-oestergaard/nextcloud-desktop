@@ -106,7 +106,7 @@ OwncloudAdvancedSetupPage::OwncloudAdvancedSetupPage(OwncloudWizard *wizard)
 #ifdef Q_OS_WIN
         bestAvailableVfsMode() == Vfs::WindowsCfApi
 #elif defined(BUILD_FILE_PROVIDER_MODULE)
-        Mac::FileProvider::fileProviderAvailable()
+        true
 #else
         false
 #endif
@@ -149,11 +149,14 @@ void OwncloudAdvancedSetupPage::initializePage()
 {
     WizardCommon::initErrorLabel(_ui.errorLabel);
 
-    if (Theme::instance()->disableVirtualFilesSyncFolder() || !Theme::instance()->showVirtualFilesOption()
-#ifndef BUILD_FILE_PROVIDER_MODULE
-        || bestAvailableVfsMode() == Vfs::Off
+    if (Theme::instance()->disableVirtualFilesSyncFolder()
+            || !(Theme::instance()->showVirtualFilesOption()
+#ifdef BUILD_FILE_PROVIDER_MODULE
+                 || true
+#else
+                 && bestAvailableVfsMode() != Vfs::Off
 #endif
-    ) {
+    )) {
         // If the layout were wrapped in a widget, the auto-grouping of the
         // radio buttons no longer works and there are surprising margins.
         // Just manually hide the button and remove the layout.
@@ -237,6 +240,11 @@ void OwncloudAdvancedSetupPage::fetchUserAvatar()
     if (Theme::isHidpi()) {
         avatarSize *= 2;
     }
+
+    if (account->isPublicShareLink()) {
+        return;
+    }
+
     const auto avatarJob = new AvatarJob(account, account->davUser(), avatarSize, this);
     avatarJob->setTimeout(20 * 1000);
     QObject::connect(avatarJob, &AvatarJob::avatarPixmap, this, [this](const QImage &avatarImage) {
@@ -637,10 +645,6 @@ void OwncloudAdvancedSetupPage::setRadioChecked(QRadioButton *radio)
 #ifdef BUILD_FILE_PROVIDER_MODULE
 void OwncloudAdvancedSetupPage::updateMacOsFileProviderRelatedViews()
 {
-    if (!Mac::FileProvider::fileProviderAvailable()) {
-        return;
-    }
-
     const auto freeSpaceHidden = _ui.rVirtualFileSync->isChecked();
     const auto folderSelectionButtonHidden = _ui.rVirtualFileSync->isChecked();
     const auto filePathLabelText =

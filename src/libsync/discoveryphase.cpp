@@ -5,12 +5,12 @@
  */
 
 #include "discoveryphase.h"
+
 #include "common/utility.h"
 #include "configfile.h"
 #include "discovery.h"
 #include "helpers.h"
 #include "progressdispatcher.h"
-
 #include "account.h"
 #include "clientsideencryptionjobs.h"
 #include "foldermetadata.h"
@@ -24,11 +24,13 @@
 #include <QLoggingCategory>
 #include <QUrl>
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QTextCodec>
 #include <cstring>
 #include <QDateTime>
 
+using namespace Qt::StringLiterals;
 
 namespace OCC {
 
@@ -216,11 +218,38 @@ void DiscoveryPhase::enqueueDirectoryToDelete(const QString &path, ProcessDirect
     }
 }
 
+bool DiscoveryPhase::recursiveCheckForDeletedParents(const QString &itemPath) const
+{
+    const auto &allKeys = _deletedItem.keys();
+    qCDebug(lcDiscovery()) << allKeys.join(", ");
+
+    auto result = false;
+    const auto &pathElements = itemPath.split('/');
+    auto currentParentFolder = QString{};
+    for (const auto &onePathComponent : pathElements) {
+        if (!currentParentFolder.isEmpty()) {
+            currentParentFolder += '/';
+        }
+        currentParentFolder += onePathComponent;
+
+        qCDebug(lcDiscovery()) << "checks" << currentParentFolder << "for" << allKeys.join(", ");
+        if (_deletedItem.find(currentParentFolder) == _deletedItem.end()) {
+            continue;
+        }
+
+        qCDebug(lcDiscovery()) << "deleted parent found";
+        result = true;
+        break;
+    }
+
+    return result;
+}
+
 void DiscoveryPhase::markPermanentDeletionRequests()
 {
     // since we don't know in advance which files/directories need to be permanently deleted,
     // we have to look through all of them at the end of the run
-    for (const auto &originalPath : _permanentDeletionRequests) {
+    for (const auto &originalPath : std::as_const(_permanentDeletionRequests)) {
         const auto it = _deletedItem.find(originalPath);
         if (it == _deletedItem.end()) {
             qCWarning(lcDiscovery) << "didn't find an item for" << originalPath << "(yet)";
@@ -229,12 +258,12 @@ void DiscoveryPhase::markPermanentDeletionRequests()
 
         auto item = *it;
         if (!(item->_instruction == CSYNC_INSTRUCTION_REMOVE || item->_direction == SyncFileItem::Up)) {
-            qCWarning(lcDiscovery) << "will not request permanent deletion for" << originalPath << "as the instruction is not CSYNC_INSTRUCTION_REMOVE, or the direction is not Up";
+            qCInfo(lcDiscovery) << "will not request permanent deletion for" << originalPath << "as the instruction is not CSYNC_INSTRUCTION_REMOVE, or the direction is not Up";
             continue;
         }
 
-        qCInfo(lcDiscovery) << "requested permanent server-side deletion for" << originalPath;
-        item->_wantsPermanentDeletion = true;
+        qCDebug(lcDiscovery) << "requested permanent server-side deletion for" << originalPath;
+        item->_wantsSpecificActions = SyncFileItem::SynchronizationOptions::WantsPermanentDeletion;
     }
 }
 
@@ -298,8 +327,17 @@ void DiscoveryPhase::slotItemDiscovered(const OCC::SyncFileItemPtr &item)
     }
 }
 
-DiscoverySingleLocalDirectoryJob::DiscoverySingleLocalDirectoryJob(const AccountPtr &account, const QString &localPath, OCC::Vfs *vfs, QObject *parent)
- : QObject(parent), QRunnable(), _localPath(localPath), _account(account), _vfs(vfs)
+DiscoverySingleLocalDirectoryJob::DiscoverySingleLocalDirectoryJob(const AccountPtr &account,
+                                                                   const QString &localPath,
+                                                                   OCC::Vfs *vfs,
+                                                                   bool fileSystemReliablePermissions,
+                                                                   QObject *parent)
+    : QObject{parent}
+    , QRunnable{}
+    , _localPath{localPath}
+    , _account{account}
+    , _vfs{vfs}
+    , _fileSystemReliablePermissions{fileSystemReliablePermissions}
 {
     qRegisterMetaType<QVector<OCC::LocalInfo> >("QVector<OCC::LocalInfo>");
 }
@@ -332,7 +370,7 @@ void DiscoverySingleLocalDirectoryJob::run() {
     QVector<LocalInfo> results;
     while (true) {
         errno = 0;
-        auto dirent = csync_vio_local_readdir(dh, _vfs);
+        auto dirent = csync_vio_local_readdir(dh, _vfs, _fileSystemReliablePermissions);
         if (!dirent)
             break;
         if (dirent->type == ItemTypeSkip)
@@ -357,7 +395,7 @@ void DiscoverySingleLocalDirectoryJob::run() {
         i.modtime = dirent->modtime;
         i.size = dirent->size;
         i.inode = dirent->inode;
-        i.isDirectory = dirent->type == ItemTypeDirectory;
+        i.isDirectory = dirent->type == ItemTypeDirectory || dirent->type == ItemTypeVirtualDirectory;
         i.isHidden = dirent->is_hidden;
         i.isSymLink = dirent->type == ItemTypeSoftLink;
         i.isVirtualFile = dirent->type == ItemTypeVirtualFile || dirent->type == ItemTypeVirtualFileDownload;
@@ -388,11 +426,13 @@ DiscoverySingleDirectoryJob::DiscoverySingleDirectoryJob(const AccountPtr &accou
                                                          const QString &path,
                                                          const QString &remoteRootFolderPath,
                                                          const QSet<QString> &topLevelE2eeFolderPaths,
+                                                         SyncFileItem::EncryptionStatus parentEncryptionStatus,
                                                          QObject *parent)
     : QObject(parent)
     , _subPath(remoteRootFolderPath + path)
     , _remoteRootFolderPath(remoteRootFolderPath)
     , _account(account)
+    , _encryptionStatusCurrent{parentEncryptionStatus}
     , _topLevelE2eeFolderPaths(topLevelE2eeFolderPaths)
 {
     Q_ASSERT(!_remoteRootFolderPath.isEmpty());
@@ -403,41 +443,8 @@ void DiscoverySingleDirectoryJob::start()
     // Start the actual HTTP job
     auto *lsColJob = new LsColJob(_account, _subPath);
 
-    QList<QByteArray> props;
-    props << "resourcetype"
-          << "getlastmodified"
-          << "getcontentlength"
-          << "getetag"
-          << "quota-available-bytes"
-          << "quota-used-bytes"
-          << "http://owncloud.org/ns:size"
-          << "http://owncloud.org/ns:id"
-          << "http://owncloud.org/ns:fileid"
-          << "http://owncloud.org/ns:downloadURL"
-          << "http://owncloud.org/ns:dDC"
-          << "http://owncloud.org/ns:permissions"
-          << "http://owncloud.org/ns:checksums"
-          << "http://nextcloud.org/ns:is-encrypted"
-          << "http://nextcloud.org/ns:metadata-files-live-photo";
-
-    if (_isRootPath)
-        props << "http://owncloud.org/ns:data-fingerprint";
-    if (_account->serverVersionInt() >= Account::makeServerVersion(10, 0, 0)) {
-        // Server older than 10.0 have performances issue if we ask for the share-types on every PROPFIND
-        props << "http://owncloud.org/ns:share-types";
-    }
-    if (_account->capabilities().filesLockAvailable()) {
-        props << "http://nextcloud.org/ns:lock"
-              << "http://nextcloud.org/ns:lock-owner-displayname"
-              << "http://nextcloud.org/ns:lock-owner"
-              << "http://nextcloud.org/ns:lock-owner-type"
-              << "http://nextcloud.org/ns:lock-owner-editor"
-              << "http://nextcloud.org/ns:lock-time"
-              << "http://nextcloud.org/ns:lock-timeout"
-              << "http://nextcloud.org/ns:lock-token";
-    }
-    props << "http://nextcloud.org/ns:is-mount-root";
-
+    const auto props = LsColJob::defaultProperties(_isRootPath ? LsColJob::FolderType::RootFolder : LsColJob::FolderType::ChildFolder,
+                                                   _account);
     lsColJob->setProperties(props);
 
     QObject::connect(lsColJob, &LsColJob::directoryListingIterated,
@@ -476,168 +483,73 @@ SyncFileItem::EncryptionStatus DiscoverySingleDirectoryJob::requiredEncryptionSt
     return _encryptionStatusRequired;
 }
 
-static void propertyMapToRemoteInfo(const QMap<QString, QString> &map, RemotePermissions::MountedPermissionAlgorithm algorithm, RemoteInfo &result)
-{
-    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
-        QString property = it.key();
-        QString value = it.value();
-        if (property == QLatin1String("resourcetype")) {
-            result.isDirectory = value.contains(QLatin1String("collection"));
-        } else if (property == QLatin1String("getlastmodified")) {
-            value.replace("GMT", "+0000");
-            const auto date = QDateTime::fromString(value, Qt::RFC2822Date);
-            Q_ASSERT(date.isValid());
-            result.modtime = 0;
-            if (date.toSecsSinceEpoch() > 0) {
-                result.modtime = date.toSecsSinceEpoch();
-            }
-        } else if (property == QLatin1String("getcontentlength")) {
-            // See #4573, sometimes negative size values are returned
-            bool ok = false;
-            qlonglong ll = value.toLongLong(&ok);
-            if (ok && ll >= 0) {
-                result.size = ll;
-            } else {
-                result.size = 0;
-            }
-        } else if (property == "getetag") {
-            result.etag = Utility::normalizeEtag(value.toUtf8());
-        } else if (property == "id") {
-            result.fileId = value.toUtf8();
-        } else if (property == "downloadURL") {
-            result.directDownloadUrl = value;
-        } else if (property == "dDC") {
-            result.directDownloadCookies = value;
-        } else if (property == "permissions") {
-            result.remotePerm = RemotePermissions::fromServerString(value, algorithm, map);
-        } else if (property == "checksums") {
-            result.checksumHeader = findBestChecksum(value.toUtf8());
-        } else if (property == "share-types" && !value.isEmpty()) {
-            // Since QMap is sorted, "share-types" is always after "permissions".
-            if (result.remotePerm.isNull()) {
-                qWarning() << "Server returned a share type, but no permissions?";
-            } else {
-                // S means shared with me.
-                // But for our purpose, we want to know if the file is shared. It does not matter
-                // if we are the owner or not.
-                // Piggy back on the permission field
-                result.remotePerm.setPermission(RemotePermissions::IsShared);
-                result.sharedByMe = true;
-            }
-        } else if (property == "is-encrypted" && value == QStringLiteral("1")) {
-            result._isE2eEncrypted = true;
-        } else if (property == "lock") {
-            result.locked = (value == QStringLiteral("1") ? SyncFileItem::LockStatus::LockedItem : SyncFileItem::LockStatus::UnlockedItem);
-        }
-        if (property == "lock-owner-displayname") {
-            result.lockOwnerDisplayName = value;
-        }
-        if (property == "lock-owner") {
-            result.lockOwnerId = value;
-        }
-        if (property == "lock-owner-type") {
-            auto ok = false;
-            const auto intConvertedValue = value.toULongLong(&ok);
-            if (ok) {
-                result.lockOwnerType = static_cast<SyncFileItem::LockOwnerType>(intConvertedValue);
-            } else {
-                result.lockOwnerType = SyncFileItem::LockOwnerType::UserLock;
-            }
-        }
-        if (property == "lock-owner-editor") {
-            result.lockEditorApp = value;
-        }
-        if (property == "lock-time") {
-            auto ok = false;
-            const auto intConvertedValue = value.toULongLong(&ok);
-            if (ok) {
-                result.lockTime = intConvertedValue;
-            } else {
-                result.lockTime = 0;
-            }
-        }
-        if (property == "lock-timeout") {
-            auto ok = false;
-            const auto intConvertedValue = value.toULongLong(&ok);
-            if (ok) {
-                result.lockTimeout = intConvertedValue;
-            } else {
-                result.lockTimeout = 0;
-            }
-        }
-        if (property == "lock-token") {
-            result.lockToken = value;
-        }
-        if (property == "metadata-files-live-photo") {
-            result.livePhotoFile = value;
-            result.isLivePhoto = true;
-        }
-    }
-
-    if (result.isDirectory && map.contains("size")) {
-        result.sizeOfFolder = map.value("size").toInt();
-    }
-
-    if (result.isDirectory && map.contains("quota-used-bytes")) {
-        result.folderQuota.bytesUsed = map.value("quota-used-bytes").toLongLong();
-    }
-
-    if (result.isDirectory && map.contains("quota-available-bytes")) {
-        result.folderQuota.bytesAvailable = map.value("quota-available-bytes").toLongLong();
-    }
-}
-
 void DiscoverySingleDirectoryJob::directoryListingIteratedSlot(const QString &file, const QMap<QString, QString> &map)
 {
     if (!_ignoredFirst) {
         // The first entry is for the folder itself, we should process it differently.
         _ignoredFirst = true;
         if (map.contains("permissions")) {
-            auto perm = RemotePermissions::fromServerString(map.value("permissions"),
+            const auto perm = RemotePermissions::fromServerString(map.value("permissions"),
                                                             _account->serverHasMountRootProperty() ? RemotePermissions::MountedPermissionAlgorithm::UseMountRootProperty : RemotePermissions::MountedPermissionAlgorithm::WildGuessMountedSubProperty,
                                                             map);
             emit firstDirectoryPermissions(perm);
             _isExternalStorage = perm.hasPermission(RemotePermissions::IsMounted);
         }
-        if (map.contains("data-fingerprint")) {
-            _dataFingerprint = map.value("data-fingerprint").toUtf8();
+        if (map.contains("data-fingerprint"_L1)) {
+            _dataFingerprint = map.value("data-fingerprint"_L1).toUtf8();
             if (_dataFingerprint.isEmpty()) {
                 // Placeholder that means that the server supports the feature even if it did not set one.
                 _dataFingerprint = "[empty]";
             }
         }
-        if (map.contains(QStringLiteral("fileid"))) {
-            _localFileId = map.value(QStringLiteral("fileid")).toUtf8();
+        if (map.contains("fileid"_L1)) {
+            // this is from the "oc:fileid" property, this is the plain ID without any special format (e.g. "2")
+            _localFileId = map.value("fileid"_L1).toUtf8();
+
+            bool ok = false;
+            if (qint64 numericFileId = _localFileId.toLongLong(&ok, 10); ok) {
+                qCDebug(lcDiscovery).nospace() << "received numericFileId=" << numericFileId;
+                emit firstDirectoryFileId(numericFileId);
+            } else {
+                qCWarning(lcDiscovery).nospace() << "conversion to qint64 failed _localFileId=" << _localFileId;
+            }
         }
-        if (map.contains("id")) {
-            _fileId = map.value("id").toUtf8();
+        if (map.contains("id"_L1)) {
+            // this is from the "oc:id" property, the format is e.g. "00000002oc123xyz987e"
+            _fileId = map.value("id"_L1).toUtf8();
         }
-        if (map.contains("is-encrypted") && map.value("is-encrypted") == QStringLiteral("1")) {
-            _encryptionStatusCurrent = SyncFileItem::EncryptionStatus::Encrypted;
+        if (map.contains("is-encrypted"_L1) && map.value("is-encrypted"_L1) == "1"_L1) {
+            _encryptionStatusCurrent = SyncFileItem::EncryptionStatus::EncryptedMigratedV2_0;
             Q_ASSERT(!_fileId.isEmpty());
         }
-        if (map.contains("size")) {
-            _size = map.value("size").toInt();
+        if (map.contains("size"_L1)) {
+            _size = map.value("size"_L1).toInt();
         }
 
         // all folders will contain both
-        if (map.contains("quota-used-bytes") && map.contains("quota-available-bytes")) {
-            emit setfolderQuota(FolderQuota{map.value("quota-used-bytes").toLongLong(), map.value("quota-available-bytes").toLongLong()});
+        if (map.contains(FolderQuota::usedBytesC) && map.contains(FolderQuota::availableBytesC)) {          
+            // The server can respond with e.g. "2.58440798353E+12" for the quota
+            // therefore: parse the string as a double and cast it to i64
+            auto ok = false;
+            auto quotaValue = static_cast<int64_t>(map.value(FolderQuota::usedBytesC).toDouble(&ok));
+            _folderQuota.bytesUsed = ok ? quotaValue : -1;
+            quotaValue = static_cast<int64_t>(map.value(FolderQuota::availableBytesC).toDouble(&ok));
+            _folderQuota.bytesAvailable = ok ? quotaValue : -1;
+
+            qCDebug(lcDiscovery) << "Setting quota for" << file
+                                 << "bytesUsed:" << _folderQuota.bytesUsed
+                                 << "bytesAvailable:" << _folderQuota.bytesAvailable
+                                 << "ok:" << ok;
+            emit setfolderQuota(_folderQuota);
         }
     } else {
         RemoteInfo result;
-        int slash = file.lastIndexOf('/');
+        int slash = file.lastIndexOf(u'/');
         result.name = file.mid(slash + 1);
         result.size = -1;
-        if (map.contains("quota-used-bytes")) {
-            result.folderQuota.bytesUsed = map.value("quota-used-bytes").toInt();
-        }
-        if (map.contains("quota-available-bytes")) {
-            result.folderQuota.bytesAvailable = map.value("quota-available-bytes").toInt();
-        }
-        propertyMapToRemoteInfo(map,
-                                _account->serverHasMountRootProperty() ? RemotePermissions::MountedPermissionAlgorithm::UseMountRootProperty : RemotePermissions::MountedPermissionAlgorithm::WildGuessMountedSubProperty,
-                                result);
+        LsColJob::propertyMapToRemoteInfo(map,
+                                          _account->serverHasMountRootProperty() ? RemotePermissions::MountedPermissionAlgorithm::UseMountRootProperty : RemotePermissions::MountedPermissionAlgorithm::WildGuessMountedSubProperty,
+                                          result);
         if (result.isDirectory)
             result.size = 0;
 
@@ -645,9 +557,9 @@ void DiscoverySingleDirectoryJob::directoryListingIteratedSlot(const QString &fi
     }
 
     //This works in concerto with the RequestEtagJob and the Folder object to check if the remote folder changed.
-    if (map.contains("getetag")) {
+    if (map.contains("getetag"_L1)) {
         if (_firstEtag.isEmpty()) {
-            _firstEtag = parseEtag(map.value(QStringLiteral("getetag")).toUtf8()); // for directory itself
+            _firstEtag = parseEtag(map.value("getetag"_L1).toUtf8()); // for directory itself
         }
     }
 }
@@ -668,36 +580,34 @@ void DiscoverySingleDirectoryJob::lsJobFinishedWithoutErrorSlot()
         emit etag(_firstEtag, QDateTime::fromString(QString::fromUtf8(_lsColJob->responseTimestamp()), Qt::RFC2822Date));
         fetchE2eMetadata();
         return;
-    } else if (isE2eEncrypted() && !_account->capabilities().clientSideEncryptionAvailable()) {
-        emit etag(_firstEtag, QDateTime::fromString(QString::fromUtf8(_lsColJob->responseTimestamp()), Qt::RFC2822Date));
-        emit finished(_results);
     }
     emit etag(_firstEtag, QDateTime::fromString(QString::fromUtf8(_lsColJob->responseTimestamp()), Qt::RFC2822Date));
     emit finished(_results);
     deleteLater();
 }
 
-void DiscoverySingleDirectoryJob::lsJobFinishedWithErrorSlot(QNetworkReply *r)
+void DiscoverySingleDirectoryJob::lsJobFinishedWithErrorSlot(QNetworkReply *reply)
 {
-    const auto contentType = r->header(QNetworkRequest::ContentTypeHeader).toString();
+    const auto contentType = reply->header(QNetworkRequest::ContentTypeHeader).toString();
     const auto invalidContentType = !contentType.contains("application/xml; charset=utf-8") &&
                                     !contentType.contains("application/xml; charset=\"utf-8\"") &&
                                     !contentType.contains("text/xml; charset=utf-8") &&
                                     !contentType.contains("text/xml; charset=\"utf-8\"");
-    const auto httpCode = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    auto msg = r->errorString();
+    const auto httpCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    auto errorString = _lsColJob->errorString();
 
-    qCWarning(lcDiscovery) << "LSCOL job error" << r->errorString() << httpCode << r->error();
+    qCWarning(lcDiscovery) << "LSCOL job error" << reply->errorString() << httpCode << reply->error();
 
-    if (r->error() == QNetworkReply::NoError && invalidContentType) {
-        msg = tr("Server error: PROPFIND reply is not XML formatted!");
+    if (reply->error() == QNetworkReply::NoError && invalidContentType) {
+        errorString = tr("The server returned an unexpected response that couldn’t be read. Please reach out to your server administrator.”");
+        qCWarning(lcDiscovery) << "Server error: PROPFIND reply is not XML formatted!";
     }
 
-    if (r->error() == QNetworkReply::ContentAccessDenied) {
+    if (reply->error() == QNetworkReply::ContentAccessDenied) {
         emit _account->termsOfServiceNeedToBeChecked();
     }
 
-    emit finished(HttpError{ httpCode, msg });
+    emit finished(HttpError{ httpCode, errorString });
     deleteLater();
 }
 
@@ -714,7 +624,7 @@ void DiscoverySingleDirectoryJob::fetchE2eMetadata()
 void DiscoverySingleDirectoryJob::metadataReceived(const QJsonDocument &json, int statusCode)
 {
     qCDebug(lcDiscovery) << "Metadata received, applying it to the result list";
-    Q_ASSERT(_subPath.startsWith('/'));
+    Q_ASSERT(_subPath.startsWith(u'/'));
 
     const auto job = qobject_cast<GetMetadataApiJob *>(sender());
     Q_ASSERT(job);
@@ -728,15 +638,15 @@ void DiscoverySingleDirectoryJob::metadataReceived(const QJsonDocument &json, in
     // as per E2EE V2, top level folder is the only source of encryption keys and users that have access to it
     // hence, we need to find its path and pass to any subfolder's metadata, so it will fetch the top level metadata when needed
     // see https://github.com/nextcloud/end_to_end_encryption_rfc/blob/v2.1/RFC.md
-    auto topLevelFolderPath = QStringLiteral("/");
-    for (const QString &topLevelPath : _topLevelE2eeFolderPaths) {
+    QString topLevelFolderPath = u"/"_s;
+    for (const QString &topLevelPath : std::as_const(_topLevelE2eeFolderPaths)) {
         if (_subPath == topLevelPath) {
-            topLevelFolderPath = QStringLiteral("/");
+            topLevelFolderPath = u"/"_s;
             break;
         }
-        if (_subPath.startsWith(topLevelPath + QLatin1Char('/'))) {
-            const auto topLevelPathSplit = topLevelPath.split(QLatin1Char('/'));
-            topLevelFolderPath = topLevelPathSplit.join(QLatin1Char('/'));
+        if (_subPath.startsWith(topLevelPath + u'/')) {
+            const auto topLevelPathSplit = topLevelPath.split(u'/');
+            topLevelFolderPath = topLevelPathSplit.join(u'/');
             break;
         }
     }
@@ -766,6 +676,9 @@ void DiscoverySingleDirectoryJob::metadataReceived(const QJsonDocument &json, in
         _encryptionStatusRequired = EncryptionStatusEnums::fromEndToEndEncryptionApiVersion(_account->capabilities().clientSideEncryptionVersion());
         _encryptionStatusCurrent = e2EeFolderMetadata->existingMetadataEncryptionStatus();
 
+        Q_ASSERT(_encryptionStatusCurrent != SyncFileItem::EncryptionStatus::Encrypted);
+        Q_ASSERT(_encryptionStatusCurrent != SyncFileItem::EncryptionStatus::NotEncrypted);
+
         const auto encryptedFiles = e2EeFolderMetadata->files();
 
         const auto findEncryptedFile = [=](const QString &name) {
@@ -784,7 +697,7 @@ void DiscoverySingleDirectoryJob::metadataReceived(const QJsonDocument &json, in
             const auto encryptedFileInfo = findEncryptedFile(result.name);
             if (encryptedFileInfo) {
                 result._isE2eEncrypted = true;
-                result.e2eMangledName = _subPath.mid(1) + QLatin1Char('/') + result.name;
+                result.e2eMangledName = _subPath.mid(1) + u'/' + result.name;
                 result.name = encryptedFileInfo->originalFilename;
             }
             return result;

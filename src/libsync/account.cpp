@@ -9,12 +9,14 @@
 #include "accountfwd.h"
 #include "capabilities.h"
 #include "clientsideencryptionjobs.h"
+#include "common/utility.h"
 #include "configfile.h"
 #include "cookiejar.h"
 #include "creds/abstractcredentials.h"
 #include "networkjobs.h"
 #include "pushnotifications.h"
 #include "theme.h"
+#include "updatechannel.h"
 #include "version.h"
 
 #include "deletejob.h"
@@ -68,6 +70,7 @@ Account::Account(QObject *parent)
     : QObject(parent)
     , _capabilities(QVariantMap())
     , _serverColor(Theme::defaultColor())
+    , _e2e{}
 {
     qRegisterMetaType<AccountPtr>("AccountPtr");
     qRegisterMetaType<Account *>("Account*");
@@ -83,6 +86,7 @@ AccountPtr Account::create()
 {
     AccountPtr acc = AccountPtr(new Account);
     acc->setSharedThis(acc);
+    acc->_e2e.setAccount(acc);
     return acc;
 }
 
@@ -101,7 +105,11 @@ QString Account::davPath() const
 
 QString Account::davPathRoot() const
 {
-    return davPathBase() + QLatin1Char('/') + davUser();
+    if (_isPublicLink) {
+        return QStringLiteral("/public.php/webdav");
+    } else {
+        return davPathBase() + QLatin1Char('/') + davUser();
+    }
 }
 
 void Account::setSharedThis(AccountPtr sharedThis)
@@ -140,6 +148,11 @@ void Account::setDavUser(const QString &newDavUser)
 
     emit wantsAccountSaved(sharedFromThis());
     emit prettyNameChanged();
+}
+
+QString Account::userFromCredentials() const
+{
+    return _credentials ? _credentials->user() : QString{};
 }
 
 #ifndef TOKEN_AUTH_ONLY
@@ -182,19 +195,18 @@ QString Account::shortcutName() const
 
     auto shortcutName = QStringLiteral("%1 - %2").arg(url_part, prettyName());
 
-
     return shortcutName;
 }
 
 QString Account::userIdAtHostWithPort() const
 {
-    QString dn = QStringLiteral("%1@%2").arg(_davUser, _url.host());
+    auto host = QStringLiteral("%1@%2").arg(_davUser, _url.host());
     const auto port = url().port();
     if (port > 0 && port != 80 && port != 443) {
-        dn.append(QLatin1Char(':'));
-        dn.append(QString::number(port));
+        host.append(QLatin1Char(':'));
+        host.append(QString::number(port));
     }
-    return dn;
+    return host;
 }
 
 QString Account::davDisplayName() const
@@ -212,7 +224,7 @@ void Account::setDavDisplayName(const QString &newDisplayName)
 QString Account::prettyName() const
 {
     // If davDisplayName is empty (can be several reasons, simplest is missing login at startup), fall back to username
-    auto name = davDisplayName();
+    auto name = isPublicShareLink() ? tr("Public Share Link") : davDisplayName();
 
     if (name.isEmpty()) {
         name = davUser();
@@ -423,17 +435,20 @@ void Account::resetNetworkAccessManager()
         this, &Account::proxyAuthenticationRequired);
 }
 
-QNetworkAccessManager *Account::networkAccessManager()
+QNetworkAccessManager *Account::networkAccessManager() const
 {
     return _networkAccessManager.data();
 }
 
-QSharedPointer<QNetworkAccessManager> Account::sharedNetworkAccessManager()
+QSharedPointer<QNetworkAccessManager> Account::sharedNetworkAccessManager() const
 {
     return _networkAccessManager;
 }
 
-QNetworkReply *Account::sendRawRequest(const QByteArray &verb, const QUrl &url, QNetworkRequest req, QIODevice *data)
+QNetworkReply *Account::sendRawRequest(const QByteArray &verb,
+                                       const QUrl &url,
+                                       QNetworkRequest req,
+                                       QIODevice *data)
 {
     req.setUrl(url);
     req.setSslConfiguration(this->getOrCreateSslConfig());
@@ -451,7 +466,10 @@ QNetworkReply *Account::sendRawRequest(const QByteArray &verb, const QUrl &url, 
     return _networkAccessManager->sendCustomRequest(req, verb, data);
 }
 
-QNetworkReply *Account::sendRawRequest(const QByteArray &verb, const QUrl &url, QNetworkRequest req, const QByteArray &data)
+QNetworkReply *Account::sendRawRequest(const QByteArray &verb,
+                                       const QUrl &url,
+                                       QNetworkRequest req,
+                                       const QByteArray &data)
 {
     req.setUrl(url);
     req.setSslConfiguration(this->getOrCreateSslConfig());
@@ -469,7 +487,10 @@ QNetworkReply *Account::sendRawRequest(const QByteArray &verb, const QUrl &url, 
     return _networkAccessManager->sendCustomRequest(req, verb, data);
 }
 
-QNetworkReply *Account::sendRawRequest(const QByteArray &verb, const QUrl &url, QNetworkRequest req, QHttpMultiPart *data)
+QNetworkReply *Account::sendRawRequest(const QByteArray &verb,
+                                       const QUrl &url,
+                                       QNetworkRequest req,
+                                       QHttpMultiPart *data)
 {
     req.setUrl(url);
     req.setSslConfiguration(this->getOrCreateSslConfig());
@@ -503,7 +524,7 @@ QSslConfiguration Account::getOrCreateSslConfig()
 
     // if setting the client certificate fails, you will probably get an error similar to this:
     //  "An internal error number 1060 happened. SSL handshake failed, client certificate was requested: SSL error: sslv3 alert handshake failure"
-    QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    auto sslConfig = QSslConfiguration::defaultConfiguration();
 
     // Try hard to reuse session for different requests
     sslConfig.setSslOption(QSsl::SslOptionDisableSessionTickets, false);
@@ -538,8 +559,24 @@ void Account::setSslErrorHandler(AbstractSslErrorHandler *handler)
 
 void Account::setUrl(const QUrl &url)
 {
-    _url = url;
+    const QRegularExpression discoverPublicLinks(R"(((https|http)://[^/]*).*/s/([^/]*)$)");
+    const auto isPublicLink = discoverPublicLinks.match(url.toString());
+    if (isPublicLink.hasMatch()) {
+        _url = QUrl::fromUserInput(isPublicLink.captured(1));
+        _url.setUserName(isPublicLink.captured(3));
+        setDavUser(isPublicLink.captured(3));
+        _isPublicLink = true;
+        _publicShareLinkUrl = url;
+    } else {
+        _url = url;
+    }
+
     _userVisibleUrl = url;
+}
+
+QUrl Account::publicShareLinkUrl() const
+{
+    return _publicShareLinkUrl;
 }
 
 void Account::setUserVisibleHost(const QString &host)
@@ -564,7 +601,7 @@ QVariant Account::credentialSetting(const QString &key) const
 void Account::setCredentialSetting(const QString &key, const QVariant &value)
 {
     if (_credentials) {
-        QString prefix = _credentials->authType();
+        const auto prefix = _credentials->authType();
         _settingsMap.insert(prefix + "_" + key, value);
     }
 }
@@ -610,8 +647,9 @@ void Account::slotHandleSslErrors(QNetworkReply *reply, QList<QSslError> errors)
     QPointer<QObject> guard = reply;
 
     if (_sslErrorHandler->handleErrors(errors, reply->sslConfiguration(), &approvedCerts, sharedFromThis())) {
-        if (!guard)
+        if (!guard) {
             return;
+        }
 
         if (!approvedCerts.isEmpty()) {
             QSslConfiguration::defaultConfiguration().addCaCertificates(approvedCerts);
@@ -627,11 +665,12 @@ void Account::slotHandleSslErrors(QNetworkReply *reply, QList<QSslError> errors)
         // certificate changes.
         reply->ignoreSslErrors(errors);
     } else {
-        if (!guard)
+        if (!guard) {
             return;
+        }
 
         // Mark all involved certificates as rejected, so we don't ask the user again.
-        for (const auto &error : errors) {
+        for (const auto &error : std::as_const(errors)) {
             if (!_rejectedCertificates.contains(error.certificate())) {
                 _rejectedCertificates.append(error.certificate());
             }
@@ -661,10 +700,11 @@ void Account::slotCredentialsFetched()
             emit credentialsFetched(_credentials.data());
         });
         fetchUserNameJob->start();
-    } else {
-        qCDebug(lcAccount) << "User id already fetched.";
-        emit credentialsFetched(_credentials.data());
+        return;
     }
+
+    qCDebug(lcAccount) << "User id already fetched.";
+    emit credentialsFetched(_credentials.data());
 }
 
 void Account::slotCredentialsAsked()
@@ -750,7 +790,7 @@ void Account::resetShouldSkipE2eeMetadataChecksumValidation()
 int Account::serverVersionInt() const
 {
     // FIXME: Use Qt 5.5 QVersionNumber
-    auto components = serverVersion().split('.');
+    const auto components = serverVersion().split('.');
     return makeServerVersion(components.value(0).toInt(),
         components.value(1).toInt(),
         components.value(2).toInt());
@@ -814,39 +854,43 @@ void Account::setServerVersion(const QString &version)
         return;
     }
 
-    auto oldServerVersion = _serverVersion;
+    const auto oldServerVersion = _serverVersion;
     _serverVersion = version;
     emit serverVersionChanged(sharedFromThis(), oldServerVersion, version);
 }
 
-void Account::writeAppPasswordOnce(QString appPassword){
-    if(_wroteAppPassword)
+void Account::writeAppPasswordOnce(const QString &appPassword)
+{
+    if (_wroteAppPassword) { 
         return;
+    }
 
     // Fix: Password got written from Account Wizard, before finish.
     // Only write the app password for a connected account, else
     // there'll be a zombie keychain slot forever, never used again ;p
     //
     // Also don't write empty passwords (Log out -> Relaunch)
-    if(id().isEmpty() || appPassword.isEmpty())
+    if (id().isEmpty() || appPassword.isEmpty()) {
         return;
+    }
 
-    const QString kck = AbstractCredentials::keychainKey(
+    const auto keychainKey = AbstractCredentials::keychainKey(
                 url().toString(),
                 davUser() + app_password,
                 id()
     );
 
-    auto *job = new WritePasswordJob(Theme::instance()->appName());
+    auto job = new WritePasswordJob(Theme::instance()->appName());
     job->setInsecureFallback(false);
-    job->setKey(kck);
+    job->setKey(keychainKey);
     job->setBinaryData(appPassword.toLatin1());
     connect(job, &WritePasswordJob::finished, [this](Job *incoming) {
-        auto *writeJob = dynamic_cast<WritePasswordJob *>(incoming);
-        if (writeJob->error() == NoError)
+        auto writeJob = dynamic_cast<WritePasswordJob *>(incoming);
+        if (writeJob->error() == NoError) {
             qCInfo(lcAccount) << "appPassword stored in keychain";
-        else
+        } else {
             qCWarning(lcAccount) << "Unable to store appPassword in keychain" << writeJob->errorString();
+        }
 
         // We don't try this again on error, to not raise CPU consumption
         _wroteAppPassword = true;
@@ -854,49 +898,49 @@ void Account::writeAppPasswordOnce(QString appPassword){
     job->start();
 }
 
-void Account::retrieveAppPassword(){
-    const QString key = credentials()->user() + app_password;
-    const QString kck = AbstractCredentials::keychainKey(
+void Account::retrieveAppPassword()
+{
+    const auto key = QString(credentials()->user() + app_password);
+    const auto keychainKey = AbstractCredentials::keychainKey(
                 url().toString(),
                 key,
                 id()
     );
 
-    auto *job = new ReadPasswordJob(Theme::instance()->appName());
+    auto job = new ReadPasswordJob(Theme::instance()->appName());
     job->setInsecureFallback(false);
-    job->setKey(kck);
+    job->setKey(keychainKey);
     connect(job, &ReadPasswordJob::finished, [this](Job *incoming) {
-        auto *readJob = dynamic_cast<ReadPasswordJob *>(incoming);
-        QString pwd("");
+        auto readJob = dynamic_cast<ReadPasswordJob *>(incoming);
+        const auto password = readJob->binaryData();
         // Error or no valid public key error out
-        if (readJob->error() == NoError &&
-                readJob->binaryData().length() > 0) {
-            pwd = readJob->binaryData();
+        if (readJob->error() == NoError && password.length() > 0) {
+            qCDebug(lcAccount) << "Found appPassword";
         }
 
-        emit appPasswordRetrieved(pwd);
+        emit appPasswordRetrieved(password);
     });
     job->start();
 }
 
 void Account::deleteAppPassword()
 {
-    const QString kck = AbstractCredentials::keychainKey(
+    const auto keychainKey = AbstractCredentials::keychainKey(
                 url().toString(),
                 credentials()->user() + app_password,
                 id()
     );
 
-    if (kck.isEmpty()) {
+    if (keychainKey.isEmpty()) {
         qCDebug(lcAccount) << "appPassword is empty";
         return;
     }
 
-    auto *job = new DeletePasswordJob(Theme::instance()->appName());
+    auto job = new DeletePasswordJob(Theme::instance()->appName());
     job->setInsecureFallback(false);
-    job->setKey(kck);
+    job->setKey(keychainKey);
     connect(job, &DeletePasswordJob::finished, [this](Job *incoming) {
-        auto *deleteJob = dynamic_cast<DeletePasswordJob *>(incoming);
+        auto deleteJob = dynamic_cast<DeletePasswordJob *>(incoming);
         const auto jobError = deleteJob->error();
         if (jobError == NoError) {
             qCInfo(lcAccount) << "appPassword deleted from keychain";
@@ -933,16 +977,17 @@ void Account::deleteAppToken()
 
 void Account::fetchDirectEditors(const QUrl &directEditingURL, const QString &directEditingETag)
 {
-    if(directEditingURL.isEmpty() || directEditingETag.isEmpty())
+    if (directEditingURL.isEmpty() || directEditingETag.isEmpty()) {
         return;
+    }
 
     // Check for the directEditing capability
     if (!directEditingURL.isEmpty() &&
         (directEditingETag.isEmpty() || directEditingETag != _lastDirectEditingETag)) {
-            // Fetch the available editors and their mime types
-            auto *job = new JsonApiJob(sharedFromThis(), QLatin1String("ocs/v2.php/apps/files/api/v1/directEditing"));
-            QObject::connect(job, &JsonApiJob::jsonReceived, this, &Account::slotDirectEditingRecieved);
-            job->start();
+        // Fetch the available editors and their mime types
+        auto job = new JsonApiJob(sharedFromThis(), QLatin1String("ocs/v2.php/apps/files/api/v1/directEditing"));
+        QObject::connect(job, &JsonApiJob::jsonReceived, this, &Account::slotDirectEditingRecieved);
+        job->start();
     }
 }
 
@@ -951,7 +996,8 @@ void Account::slotDirectEditingRecieved(const QJsonDocument &json)
     auto data = json.object().value("ocs").toObject().value("data").toObject();
     const auto editors = data.value("editors").toObject();
 
-    for (const auto &editorKey : editors.keys()) {
+    const auto &allKeys = editors.keys();
+    for (const auto &editorKey : allKeys) {
         auto editor = editors.value(editorKey).toObject();
 
         const QString id = editor.value("id").toString();
@@ -963,11 +1009,11 @@ void Account::slotDirectEditingRecieved(const QJsonDocument &json)
 
             auto *directEditor = new DirectEditor(id, name);
 
-            for (const auto &mimeType : mimeTypes) {
+            for (const auto &mimeType : std::as_const(mimeTypes)) {
                 directEditor->addMimetype(mimeType.toString().toLatin1());
             }
 
-            for (const auto &optionalMimeType : optionalMimeTypes) {
+            for (const auto &optionalMimeType : std::as_const(optionalMimeTypes)) {
                 directEditor->addOptionalMimetype(optionalMimeType.toString().toLatin1());
             }
 
@@ -1005,7 +1051,7 @@ void Account::setLockFileState(const QString &serverRelativePath,
                                const SyncFileItem::LockStatus lockStatus,
                                const SyncFileItem::LockOwnerType lockOwnerType)
 {
-    auto& lockStatusJobInProgress = _lockStatusChangeInprogress[serverRelativePath];
+    auto &lockStatusJobInProgress = _lockStatusChangeInprogress[serverRelativePath];
     if (lockStatusJobInProgress.contains(lockStatus)) {
         qCWarning(lcAccount) << "Already running a job with lockStatus:" << lockStatus << " for: " << serverRelativePath;
         return;
@@ -1132,10 +1178,106 @@ void Account::setEncryptionCertificateFingerprint(const QByteArray &fingerprint)
     Q_EMIT wantsAccountSaved(sharedFromThis());
 }
 
+#ifdef BUILD_FILE_PROVIDER_MODULE
+QString Account::fileProviderDomainIdentifier() const
+{
+    return _fileProviderDomainIdentifier;
+}
+
+void Account::setFileProviderDomainIdentifier(const QString &identifier)
+{
+    if (_fileProviderDomainIdentifier == identifier) {
+        return;
+    }
+
+    _fileProviderDomainIdentifier = identifier;
+    Q_EMIT wantsAccountSaved(sharedFromThis());
+}
+#endif
+
 void Account::setAskUserForMnemonic(const bool ask)
 {
     _e2eAskUserForMnemonic = ask;
     emit askUserForMnemonicChanged();
+}
+
+void Account::listRemoteFolder(QPromise<OCC::PlaceholderCreateInfo> *promise, const QString &remoteSyncRootPath, const QString &subPath, SyncJournalDb *journalForFolder)
+{
+    qCInfo(lcAccount()) << "ls col job requested for" << subPath;
+
+    if (!credentials()->ready()) {
+        qCWarning(lcAccount()) << "credentials are not ready" << subPath;
+        promise->finish();
+        return;
+    }
+
+    auto listFolderJob = new OCC::LsColJob{sharedFromThis(), subPath};
+
+    const auto props = LsColJob::defaultProperties(LsColJob::FolderType::ChildFolder, sharedFromThis());
+
+    listFolderJob->setProperties(props);
+
+    QObject::connect(listFolderJob, &OCC::LsColJob::networkError, this, [promise, subPath] (QNetworkReply *reply) {
+        if (reply) {
+            qCWarning(lcAccount()) << "ls col job" << subPath << "error" << reply->errorString();
+        }
+
+        qCWarning(lcAccount()) << "ls col job" << subPath << "error without a reply";
+        promise->finish();
+    });
+
+    QObject::connect(listFolderJob, &OCC::LsColJob::finishedWithError, this, [promise, subPath] (QNetworkReply *reply) {
+        if (reply) {
+            qCWarning(lcAccount()) << "ls col job" << subPath << "error" << reply->errorString();
+        }
+
+        qCWarning(lcAccount()) << "ls col job" << subPath << "error without a reply";
+        promise->finish();
+    });
+
+    QObject::connect(listFolderJob, &OCC::LsColJob::finishedWithoutError, this, [promise, subPath] () {
+        qCInfo(lcAccount()) << "ls col job" << subPath << "finished";
+        promise->finish();
+    });
+
+    listFolderJob->setProperty("ignoredFirst", false);
+    const auto baseRemotePath = Utility::trailingSlashPath(Utility::noLeadingSlashPath(remoteSyncRootPath));
+    auto syncRootPath = subPath;
+    if (subPath.startsWith(baseRemotePath)) {
+        syncRootPath = syncRootPath.mid(baseRemotePath.size());
+    }
+
+    QObject::connect(listFolderJob, &OCC::LsColJob::directoryListingIterated, this, [promise, remoteSyncRootPath, syncRootPath, journalForFolder, this](const QString &completeDavPath, const QMap<QString, QString> &properties) {
+        if (!sender()->property("ignoredFirst").toBool()) {
+            qCDebug(lcAccount()) << "skip first item";
+            sender()->setProperty("ignoredFirst", true);
+            return;
+        }
+
+        qCInfo(lcAccount()) << "ls col job" << syncRootPath << "new file" << completeDavPath << properties.count();
+
+        const auto slash = completeDavPath.lastIndexOf('/');
+        const auto itemFileName = completeDavPath.mid(slash + 1);
+        const auto absoluteItemPathName = syncRootPath.isEmpty() ? itemFileName : Utility::noTrailingSlashPath(syncRootPath) + '/' + itemFileName;
+
+        auto currentItemDbRecord = SyncJournalFileRecord{};
+        if (journalForFolder->getFileRecord(absoluteItemPathName, &currentItemDbRecord) && currentItemDbRecord.isValid()) {
+            qCWarning(lcAccount()) << "skip existing item" << absoluteItemPathName;
+            return;
+        }
+
+        auto newEntry = RemoteInfo{};
+
+        LsColJob::propertyMapToRemoteInfo(properties,
+                                          serverHasMountRootProperty() ? RemotePermissions::MountedPermissionAlgorithm::UseMountRootProperty : RemotePermissions::MountedPermissionAlgorithm::WildGuessMountedSubProperty,
+                                          newEntry);
+
+        promise->emplaceResult(itemFileName, itemFileName.toStdWString(), absoluteItemPathName, newEntry);
+    });
+
+    promise->start();
+    listFolderJob->start();
+    qCInfo(lcAccount()) << "ls col job started";
 }
 
 bool Account::serverHasValidSubscription() const
@@ -1146,6 +1288,16 @@ bool Account::serverHasValidSubscription() const
 void Account::setServerHasValidSubscription(bool valid)
 {
     _serverHasValidSubscription = valid;
+}
+
+UpdateChannel Account::enterpriseUpdateChannel() const
+{
+    return _enterpriseUpdateChannel;
+}
+
+void Account::setEnterpriseUpdateChannel(const UpdateChannel &channel)
+{
+    _enterpriseUpdateChannel = channel;
 }
 
 void Account::updateServerSubcription()
@@ -1162,43 +1314,14 @@ void Account::updateServerSubcription()
 
 void Account::updateDesktopEnterpriseChannel()
 {
+    const auto capabilityEnterpriseChannel = UpdateChannel::fromString(_capabilities.desktopEnterpriseChannel());
+    _enterpriseUpdateChannel = capabilityEnterpriseChannel;
+
     ConfigFile currentConfig;
-    if (const auto desktopEnterpriseChannel = _capabilities.desktopEnterpriseChannel();
-        desktopEnterpriseChannel != currentConfig.desktopEnterpriseChannel()) {
-        currentConfig.setDesktopEnterpriseChannel(desktopEnterpriseChannel);
+    const auto configEnterpriseChannel = UpdateChannel::fromString(currentConfig.desktopEnterpriseChannel());
+    if (capabilityEnterpriseChannel > configEnterpriseChannel) {
+        currentConfig.setDesktopEnterpriseChannel(capabilityEnterpriseChannel.toString());
     }
-}
-
-Account::AccountNetworkProxySetting Account::networkProxySetting() const
-{
-    return _networkProxySetting;
-}
-
-void Account::setNetworkProxySetting(const AccountNetworkProxySetting setting)
-{
-    if (setting == _networkProxySetting) {
-        return;
-    }
-
-    _networkProxySetting = setting;
-    if (setting == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setType(proxyType());
-        proxy.setHostName(proxyHostName());
-        proxy.setPort(proxyPort());
-        proxy.setUser(proxyUser());
-        proxy.setPassword(proxyPassword());
-        _networkAccessManager->setProxy(proxy);
-    } else {
-        const auto proxy = QNetworkProxy::applicationProxy();
-        _networkAccessManager->setProxy(proxy);
-        setProxyType(proxy.type());
-        setProxyHostName(proxy.hostName());
-        setProxyPort(proxy.port());
-        setProxyUser(proxy.user());
-        setProxyPassword(proxy.password());
-    }
-    emit networkProxySettingChanged();
 }
 
 QNetworkProxy::ProxyType Account::proxyType() const
@@ -1214,11 +1337,13 @@ void Account::setProxyType(QNetworkProxy::ProxyType proxyType)
 
     _proxyType = proxyType;
 
-    if (networkProxySetting() == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setType(proxyType);
-        _networkAccessManager->setProxy(proxy);
-    }
+    auto proxy = _networkAccessManager->proxy();
+    proxy.setType(proxyType);
+    proxy.setHostName(proxyHostName());
+    proxy.setPort(proxyPort());
+    proxy.setUser(proxyUser());
+    proxy.setPassword(proxyPassword());
+    _networkAccessManager->setProxy(proxy);
 
     emit proxyTypeChanged();
 }
@@ -1236,11 +1361,9 @@ void Account::setProxyHostName(const QString &hostName)
 
     _proxyHostName = hostName;
 
-    if (networkProxySetting() == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setHostName(hostName);
-        _networkAccessManager->setProxy(proxy);
-    }
+    auto proxy = _networkAccessManager->proxy();
+    proxy.setHostName(hostName);
+    _networkAccessManager->setProxy(proxy);
 
     emit proxyHostNameChanged();
 }
@@ -1258,11 +1381,9 @@ void Account::setProxyPort(const int port)
 
     _proxyPort = port;
 
-    if (networkProxySetting() == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setPort(port);
-        _networkAccessManager->setProxy(proxy);
-    }
+    auto proxy = _networkAccessManager->proxy();
+    proxy.setPort(port);
+    _networkAccessManager->setProxy(proxy);
 
     emit proxyPortChanged();
 }
@@ -1295,11 +1416,9 @@ void Account::setProxyUser(const QString &user)
 
     _proxyUser = user;
 
-    if (networkProxySetting() == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setUser(user);
-        _networkAccessManager->setProxy(proxy);
-    }
+    auto proxy = _networkAccessManager->proxy();
+    proxy.setUser(user);
+    _networkAccessManager->setProxy(proxy);
 
     emit proxyUserChanged();
 }
@@ -1317,35 +1436,26 @@ void Account::setProxyPassword(const QString &password)
 
     _proxyPassword = password;
 
-    if (networkProxySetting() == AccountNetworkProxySetting::AccountSpecificProxy) {
-        auto proxy = _networkAccessManager->proxy();
-        proxy.setPassword(password);
-        _networkAccessManager->setProxy(proxy);
-    }
+    auto proxy = _networkAccessManager->proxy();
+    proxy.setPassword(password);
+    _networkAccessManager->setProxy(proxy);
 
     emit proxyPasswordChanged();
 }
 
-void Account::setProxySettings(const AccountNetworkProxySetting networkProxySetting,
-                               const QNetworkProxy::ProxyType proxyType,
+void Account::setProxySettings(const QNetworkProxy::ProxyType proxyType,
                                const QString &hostName,
                                const int port,
                                const bool needsAuth,
                                const QString &user,
                                const QString &password)
 {
-    if (networkProxySetting == AccountNetworkProxySetting::GlobalProxy) {
-        setNetworkProxySetting(networkProxySetting);
-        return;
-    }
-
     setProxyType(proxyType);
     setProxyHostName(hostName);
     setProxyPort(port);
     setProxyNeedsAuth(needsAuth);
     setProxyUser(user);
     setProxyPassword(password);
-    setNetworkProxySetting(networkProxySetting);
 }
 
 Account::AccountNetworkTransferLimitSetting Account::uploadLimitSetting() const
@@ -1359,7 +1469,14 @@ void Account::setUploadLimitSetting(const AccountNetworkTransferLimitSetting set
         return;
     }
 
-    _uploadLimitSetting = setting;
+    auto targetSetting = setting;
+
+    if (setting == AccountNetworkTransferLimitSetting::LegacyGlobalLimit) {
+        qCInfo(lcAccount) << "Upload limit setting was requested to be set to the legacy global limit, falling back to unlimited";
+        targetSetting = AccountNetworkTransferLimitSetting::NoLimit;
+    }
+
+    _uploadLimitSetting = targetSetting;
     emit uploadLimitSettingChanged();
 }
 
@@ -1373,8 +1490,15 @@ void Account::setDownloadLimitSetting(const AccountNetworkTransferLimitSetting s
     if (setting == _downloadLimitSetting) {
         return;
     }
-    
-    _downloadLimitSetting = setting;
+
+    auto targetSetting = setting;
+
+    if (setting == AccountNetworkTransferLimitSetting::LegacyGlobalLimit) {
+        qCInfo(lcAccount) << "Download limit setting was requested to be set to the legacy global limit, falling back to unlimited";
+        targetSetting = AccountNetworkTransferLimitSetting::NoLimit;
+    }
+
+    _downloadLimitSetting = targetSetting;
     emit downloadLimitSettingChanged();
 }
 

@@ -4,6 +4,17 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#include "networkjobs.h"
+#include "account.h"
+#include "helpers.h"
+#include "owncloudpropagator.h"
+#include "clientsideencryption.h"
+#include "common/checksums.h"
+
+#include "creds/abstractcredentials.h"
+#include "creds/httpcredentials.h"
+#include "configfile.h"
+
 #include <QJsonDocument>
 #include <QLoggingCategory>
 #include <QNetworkRequest>
@@ -27,15 +38,7 @@
 #include <QPainterPath>
 #endif
 
-#include "networkjobs.h"
-#include "account.h"
-#include "helpers.h"
-#include "owncloudpropagator.h"
-#include "clientsideencryption.h"
-
-#include "creds/abstractcredentials.h"
-#include "creds/httpcredentials.h"
-#include "configfile.h"
+using namespace Qt::StringLiterals;
 
 namespace OCC {
 
@@ -327,6 +330,163 @@ void LsColJob::setProperties(QList<QByteArray> properties)
 QList<QByteArray> LsColJob::properties() const
 {
     return _properties;
+}
+
+QList<QByteArray> LsColJob::defaultProperties(FolderType isRootPath, AccountPtr account)
+{
+    auto props = QList<QByteArray>{};
+
+    props << "resourcetype"
+          << "getlastmodified"
+          << "getcontentlength"
+          << "getetag"
+          << "quota-available-bytes"
+          << "quota-used-bytes"
+          << "http://owncloud.org/ns:size"
+          << "http://owncloud.org/ns:id"
+          << "http://owncloud.org/ns:fileid"
+          << "http://owncloud.org/ns:downloadURL"
+          << "http://owncloud.org/ns:dDC"
+          << "http://owncloud.org/ns:permissions"
+          << "http://owncloud.org/ns:checksums"
+          << "http://nextcloud.org/ns:is-encrypted"
+          << "http://nextcloud.org/ns:metadata-files-live-photo"
+          << "http://nextcloud.org/ns:share-attributes";
+
+    if (isRootPath == FolderType::RootFolder) {
+        props << "http://owncloud.org/ns:data-fingerprint";
+    }
+
+    if (account->serverVersionInt() >= Account::makeServerVersion(10, 0, 0)) {
+        // Server older than 10.0 have performances issue if we ask for the share-types on every PROPFIND
+        props << "http://owncloud.org/ns:share-types";
+    }
+    if (account->capabilities().filesLockAvailable()) {
+        props << "http://nextcloud.org/ns:lock"
+              << "http://nextcloud.org/ns:lock-owner-displayname"
+              << "http://nextcloud.org/ns:lock-owner"
+              << "http://nextcloud.org/ns:lock-owner-type"
+              << "http://nextcloud.org/ns:lock-owner-editor"
+              << "http://nextcloud.org/ns:lock-time"
+              << "http://nextcloud.org/ns:lock-timeout"
+              << "http://nextcloud.org/ns:lock-token";
+    }
+    props << "http://nextcloud.org/ns:is-mount-root";
+
+    return props;
+}
+
+void LsColJob::propertyMapToRemoteInfo(const QMap<QString, QString> &map, RemotePermissions::MountedPermissionAlgorithm algorithm, RemoteInfo &result)
+{
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+        QString property = it.key();
+        QString value = it.value();
+        if (property == "resourcetype"_L1) {
+            result.isDirectory = value.contains("collection"_L1);
+        } else if (property == "getlastmodified"_L1) {
+            value.replace("GMT", "+0000");
+            const auto date = QDateTime::fromString(value, Qt::RFC2822Date);
+            Q_ASSERT(date.isValid());
+            result.modtime = 0;
+            if (date.toSecsSinceEpoch() > 0) {
+                result.modtime = date.toSecsSinceEpoch();
+            }
+        } else if (property == "getcontentlength"_L1) {
+            // See #4573, sometimes negative size values are returned
+            bool ok = false;
+            qlonglong ll = value.toLongLong(&ok);
+            if (ok && ll >= 0) {
+                result.size = ll;
+            } else {
+                result.size = 0;
+            }
+        } else if (property == "getetag"_L1) {
+            result.etag = Utility::normalizeEtag(value.toUtf8());
+        } else if (property == "id"_L1) {
+            result.fileId = value.toUtf8();
+        } else if (property == "downloadURL"_L1) {
+            result.directDownloadUrl = value;
+        } else if (property == "dDC"_L1) {
+            result.directDownloadCookies = value;
+        } else if (property == "permissions"_L1) {
+            result.remotePerm = RemotePermissions::fromServerString(value, algorithm, map);
+        } else if (property == "checksums"_L1) {
+            result.checksumHeader = findBestChecksum(value.toUtf8());
+        } else if (property == "share-types"_L1 && !value.isEmpty()) {
+            // Since QMap is sorted, "share-types" is always after "permissions".
+            if (result.remotePerm.isNull()) {
+                qWarning() << "Server returned a share type, but no permissions?";
+            } else {
+                // S means shared with me.
+                // But for our purpose, we want to know if the file is shared. It does not matter
+                // if we are the owner or not.
+                // Piggy back on the permission field
+                result.remotePerm.setPermission(RemotePermissions::IsShared);
+                result.sharedByMe = true;
+            }
+        } else if (property == "is-encrypted"_L1 && value == "1"_L1) {
+            result._isE2eEncrypted = true;
+        } else if (property == "lock"_L1) {
+            result.locked = (value == "1"_L1 ? SyncFileItem::LockStatus::LockedItem : SyncFileItem::LockStatus::UnlockedItem);
+        }
+        if (property == "lock-owner-displayname"_L1) {
+            result.lockOwnerDisplayName = value;
+        }
+        if (property == "lock-owner"_L1) {
+            result.lockOwnerId = value;
+        }
+        if (property == "lock-owner-type"_L1) {
+            auto ok = false;
+            const auto intConvertedValue = value.toULongLong(&ok);
+            if (ok) {
+                result.lockOwnerType = static_cast<SyncFileItem::LockOwnerType>(intConvertedValue);
+            } else {
+                result.lockOwnerType = SyncFileItem::LockOwnerType::UserLock;
+            }
+        }
+        if (property == "lock-owner-editor"_L1) {
+            result.lockEditorApp = value;
+        }
+        if (property == "lock-time"_L1) {
+            auto ok = false;
+            const auto intConvertedValue = value.toULongLong(&ok);
+            if (ok) {
+                result.lockTime = intConvertedValue;
+            } else {
+                result.lockTime = 0;
+            }
+        }
+        if (property == "lock-timeout"_L1) {
+            auto ok = false;
+            const auto intConvertedValue = value.toULongLong(&ok);
+            if (ok) {
+                result.lockTimeout = intConvertedValue;
+            } else {
+                result.lockTimeout = 0;
+            }
+        }
+        if (property == "lock-token"_L1) {
+            result.lockToken = value;
+        }
+        if (property == "metadata-files-live-photo"_L1) {
+            result.livePhotoFile = value;
+            result.isLivePhoto = true;
+        }
+    }
+
+    if (result.isDirectory && map.contains("size"_L1)) {
+        result.sizeOfFolder = map.value("size"_L1).toInt();
+    }
+
+    if (result.isDirectory && map.contains(FolderQuota::usedBytesC) && map.contains(FolderQuota::availableBytesC)) {
+        // The server can respond with e.g. "2.58440798353E+12" for the quota
+        // therefore: parse the string as a double and cast it to i64
+        auto ok = false;
+        auto quotaValue = static_cast<int64_t>(map.value(FolderQuota::usedBytesC).toDouble(&ok));
+        result.folderQuota.bytesUsed = ok ? quotaValue : -1;
+        quotaValue = static_cast<int64_t>(map.value(FolderQuota::availableBytesC).toDouble(&ok));
+        result.folderQuota.bytesAvailable = ok ? quotaValue : -1;
+    }
 }
 
 void LsColJob::start()
@@ -1021,7 +1181,7 @@ void DetermineAuthTypeJob::start()
 
     QNetworkRequest req;
     // Prevent HttpCredentialsAccessManager from setting an Authorization header.
-    req.setAttribute(HttpCredentials::DontAddCredentialsAttribute, true);
+    req.setAttribute(AbstractCredentials::DontAddCredentialsAttribute, true);
     // Don't reuse previous auth credentials
     req.setAttribute(QNetworkRequest::AuthenticationReuseAttribute, QNetworkRequest::Manual);
 
@@ -1051,6 +1211,9 @@ void DetermineAuthTypeJob::start()
             _resultGet = Basic;
         } else {
             _resultGet = LoginFlowV2;
+        }
+        if (_account->isPublicShareLink()) {
+            _resultGet = Basic;
         }
         _getDone = true;
         checkAllDone();
@@ -1090,6 +1253,9 @@ void DetermineAuthTypeJob::start()
                 }
             }
         } else {
+            _resultOldFlow = Basic;
+        }
+        if (_account->isPublicShareLink()) {
             _resultOldFlow = Basic;
         }
         _oldFlowDone = true;

@@ -66,15 +66,17 @@ bool VfsSuffix::isHydrating() const
     return false;
 }
 
-Result<void, QString> VfsSuffix::updateMetadata(const QString &filePath, time_t modtime, qint64, const QByteArray &)
+OCC::Result<OCC::Vfs::ConvertToPlaceholderResult, QString> VfsSuffix::updateMetadata(const SyncFileItem &syncItem, const QString &filePath, const QString &replacesFile)
 {
-    if (modtime <= 0) {
+    Q_UNUSED(replacesFile)
+
+    if (syncItem._modtime <= 0) {
         return {tr("Error updating metadata due to invalid modification time")};
     }
 
-    qCDebug(lcVfsSuffix()) << "setModTime" << filePath << modtime;
-    FileSystem::setModTime(filePath, modtime);
-    return {};
+    qCDebug(lcVfsSuffix()) << "setModTime" << filePath << syncItem._modtime;
+    FileSystem::setModTime(filePath, syncItem._modtime);
+    return {OCC::Vfs::ConvertToPlaceholderResult::Ok};
 }
 
 Result<void, QString> VfsSuffix::createPlaceholder(const SyncFileItem &item)
@@ -104,6 +106,21 @@ Result<void, QString> VfsSuffix::createPlaceholder(const SyncFileItem &item)
     qCDebug(lcVfsSuffix()) << "setModTime" << fn << item._modtime;
     FileSystem::setModTime(fn, item._modtime);
     return {};
+}
+
+Result<void, QString> VfsSuffix::createPlaceholders(const QList<SyncFileItemPtr> &items)
+{
+    auto result = Result<void, QString>{};
+
+    for (const auto &oneItem : items) {
+        const auto itemResult = createPlaceholder(*oneItem);
+        if (!itemResult) {
+            result = itemResult;
+            break;
+        }
+    }
+
+    return result;
 }
 
 Result<void, QString> VfsSuffix::dehydratePlaceholder(const SyncFileItem &item)

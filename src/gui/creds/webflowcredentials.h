@@ -37,9 +37,6 @@ class WebFlowCredentials : public AbstractCredentials
     friend class WebFlowCredentialsAccessManager;
 
 public:
-    /// Don't add credentials if this is set on a QNetworkRequest
-    static constexpr QNetworkRequest::Attribute DontAddCredentialsAttribute = QNetworkRequest::User;
-
     explicit WebFlowCredentials();
     WebFlowCredentials(
             const QString &user,
@@ -55,7 +52,7 @@ public:
 
     [[nodiscard]] bool ready() const override;
 
-    void fetchFromKeychain() override;
+    void fetchFromKeychain(const QString &appName = {}) override;
     void askFromUser() override;
 
     bool stillValid(QNetworkReply *reply) override;
@@ -73,14 +70,14 @@ private slots:
     void slotAskFromUserCredentialsProvided(const QString &user, const QString &pass, const QString &host);
     void slotAskFromUserCancelled();
 
-    void slotReadClientCertPEMJobDone(KeychainChunk::ReadJob *readJob);
-    void slotReadClientKeyPEMJobDone(KeychainChunk::ReadJob *readJob);
-    void slotReadClientCaCertsPEMJobDone(KeychainChunk::ReadJob *readJob);
+    void slotReadClientCertPEMJobDone(OCC::KeychainChunk::ReadJob *readJob);
+    void slotReadClientKeyPEMJobDone(OCC::KeychainChunk::ReadJob *readJob);
+    void slotReadClientCaCertsPEMJobDone(OCC::KeychainChunk::ReadJob *readJob);
     void slotReadPasswordJobDone(QKeychain::Job *incomingJob);
 
-    void slotWriteClientCertPEMJobDone(KeychainChunk::WriteJob *writeJob);
-    void slotWriteClientKeyPEMJobDone(KeychainChunk::WriteJob *writeJob);
-    void slotWriteClientCaCertsPEMJobDone(KeychainChunk::WriteJob *writeJob);
+    void slotWriteClientCertPEMJobDone(OCC::KeychainChunk::WriteJob *writeJob);
+    void slotWriteClientKeyPEMJobDone(OCC::KeychainChunk::WriteJob *writeJob);
+    void slotWriteClientCaCertsPEMJobDone(OCC::KeychainChunk::WriteJob *writeJob);
     void slotWriteJobDone(QKeychain::Job *);
 
 private:
@@ -127,6 +124,7 @@ protected:
     bool _ready = false;
     bool _credentialsValid = false;
     bool _keychainMigration = false;
+    QString _appName;
 
     WebFlowCredentialsDialog *_askDialog = nullptr;
 };

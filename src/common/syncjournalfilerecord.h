@@ -53,7 +53,7 @@ public:
     [[nodiscard]] QByteArray numericFileId() const;
     [[nodiscard]] QDateTime modDateTime() const { return Utility::qDateTimeFromTime_t(_modtime); }
 
-    [[nodiscard]] bool isDirectory() const { return _type == ItemTypeDirectory; }
+    [[nodiscard]] bool isDirectory() const { return _type == ItemTypeVirtualDirectory || _type == ItemTypeDirectory; }
     [[nodiscard]] bool isFile() const { return _type == ItemTypeFile || _type == ItemTypeVirtualFileDehydration; }
     [[nodiscard]] bool isVirtualFile() const { return _type == ItemTypeVirtualFile || _type == ItemTypeVirtualFileDownload; }
     [[nodiscard]] QString path() const { return QString::fromUtf8(_path); }
@@ -78,6 +78,11 @@ public:
     bool _sharedByMe = false;
     bool _isLivePhoto = false;
     QString _livePhotoFile;
+    struct FolderQuota {
+        qint64 bytesUsed = -1;
+        qint64 bytesAvailable = -1;
+    };
+    FolderQuota _folderQuota;
 };
 
 QDebug& operator<<(QDebug &stream, const SyncJournalFileRecord::EncryptionStatus status);

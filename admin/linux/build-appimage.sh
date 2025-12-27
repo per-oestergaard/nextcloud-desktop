@@ -100,11 +100,11 @@ export PATH=${QT_BASE_DIR}/bin:${PATH}
 export QML_SOURCES_PATHS=${DESKTOP_CLIENT_ROOT}/src/gui
 ./linuxdeploy-plugin-qt-squashfs-root/AppRun --appdir=AppDir
 
-./linuxdeploy-squashfs-root/AppRun --desktop-file=${DESKTOP_FILE} --icon-file=usr/share/icons/hicolor/512x512/apps/Nextcloud.png --executable=usr/bin/${EXECUTABLE_NAME} --appdir=AppDir --output appimage
+./linuxdeploy-squashfs-root/AppRun --desktop-file=${DESKTOP_FILE} --library=/usr/lib64/libsoftokn3.so --icon-file=usr/share/icons/hicolor/512x512/apps/Nextcloud.png --executable=usr/bin/${EXECUTABLE_NAME} --appdir=AppDir --output appimage
 
 # Workaround issue #103 and #7231
 export APPIMAGETOOL=appimagetool-x86_64.AppImage
-wget -O ${APPIMAGETOOL} --ca-directory=/etc/ssl/certs -c https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+wget -O ${APPIMAGETOOL} --ca-directory=/etc/ssl/certs -c https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod a+x ${APPIMAGETOOL}
 rm -rf ./squashfs-root
 ./${APPIMAGETOOL} --appimage-extract

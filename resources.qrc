@@ -1,12 +1,12 @@
 <RCC>
     <qresource prefix="/qml">
-        <file>src/gui/UserStatusSelector.qml</file>
+        <file>src/gui/UserStatusMessageView.qml</file>
         <file>src/gui/UserStatusSelectorPage.qml</file>
         <file>src/gui/EmojiPicker.qml</file>
         <file>src/gui/UserStatusSelectorButton.qml</file>
+        <file>src/gui/UserStatusSetStatusView.qml</file>
         <file>src/gui/PredefinedStatusButton.qml</file>
         <file>src/gui/ErrorBox.qml</file>
-        <file>src/gui/EncryptionTokenSelectionWindow.qml</file>
         <file>src/gui/filedetails/FileActivityView.qml</file>
         <file>src/gui/filedetails/FileDetailsPage.qml</file>
         <file>src/gui/filedetails/FileDetailsView.qml</file>
@@ -49,7 +49,6 @@
         <file>src/gui/tray/EncryptionTokenDiscoveryDialog.qml</file>
         <file>src/gui/tray/NCBusyIndicator.qml</file>
         <file>src/gui/tray/NCIconWithBackgroundImage.qml</file>
-        <file>src/gui/tray/NCToolTip.qml</file>
         <file>src/gui/tray/NCProgressBar.qml</file>
         <file>src/gui/tray/EnforcedPlainTextLabel.qml</file>
         <file>theme/Style/Style.qml</file>
@@ -62,8 +61,5 @@
         <file>src/gui/ConflictItemFileInfo.qml</file>
         <file>src/gui/macOS/ui/FileProviderSettings.qml</file>
         <file>src/gui/macOS/ui/FileProviderFileDelegate.qml</file>
-        <file>src/gui/macOS/ui/FileProviderEvictionDialog.qml</file>
-        <file>src/gui/macOS/ui/FileProviderSyncStatus.qml</file>
-        <file>src/gui/macOS/ui/FileProviderStorageInfo.qml</file>
     </qresource>
 </RCC>

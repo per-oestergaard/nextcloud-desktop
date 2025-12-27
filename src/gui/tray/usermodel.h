@@ -18,6 +18,7 @@
 #include "activitydata.h"
 #include "activitylistmodel.h"
 #include "folderman.h"
+#include "userinfo.h"
 #include "userstatusconnector.h"
 #include "userstatusselectormodel.h"
 #include <chrono>
@@ -70,6 +71,7 @@ class User : public QObject
     Q_PROPERTY(bool needsToSignTermsOfService READ needsToSignTermsOfService NOTIFY accountStateChanged)
     Q_PROPERTY(UnifiedSearchResultsListModel* unifiedSearchResultsListModel READ getUnifiedSearchResultsListModel CONSTANT)
     Q_PROPERTY(QVariantList groupFolders READ groupFolders NOTIFY groupFoldersChanged)
+    Q_PROPERTY(bool canLogout READ canLogout CONSTANT)
 
 public:
     User(AccountStatePtr &account, const bool &isCurrent = false, QObject *parent = nullptr);
@@ -112,6 +114,8 @@ public:
     [[nodiscard]] QString statusEmoji() const;
     void processCompletedSyncItem(const Folder *folder, const SyncFileItemPtr &item);
     [[nodiscard]] const QVariantList &groupFolders() const;
+    [[nodiscard]] bool canLogout() const;
+    [[nodiscard]] bool isPublicShareLink() const;
 
 signals:
     void nameChanged();
@@ -161,8 +165,9 @@ private slots:
     void slotReceivedPushActivity(OCC::Account *account);
     void slotCheckExpiredActivities();
     void slotGroupFoldersFetched(QNetworkReply *reply);
+    void slotQuotaChanged(const int64_t &usedBytes, const int64_t &availableBytes);
     void checkNotifiedNotifications();
-    void showDesktopNotification(const QString &title, const QString &message, const long notificationId);
+    void showDesktopNotification(const QString &title, const QString &message, const qint64 notificationId);
     void showDesktopNotification(const OCC::Activity &activity);
     void showDesktopNotification(const OCC::ActivityList &activityList);
     void showDesktopTalkNotification(const OCC::Activity &activity);
@@ -176,10 +181,8 @@ private:
     bool isActivityOfCurrentAccount(const Folder *folder) const;
     [[nodiscard]] bool isUnsolvableConflict(const SyncFileItemPtr &item) const;
 
-    bool notificationAlreadyShown(const long notificationId);
-    bool canShowNotification(const long notificationId);
-
-    void checkAndRemoveSeenActivities(const ActivityList &list, const int numTalkNotificationsReceived);
+    bool notificationAlreadyShown(const qint64 notificationId);
+    bool canShowNotification(const qint64 notificationId);
 
     [[nodiscard]] bool serverHasTalk() const;
 
@@ -187,7 +190,6 @@ private:
     bool _isCurrentUser;
     ActivityListModel *_activityModel;
     UnifiedSearchResultsListModel *_unifiedSearchResultsModel;
-    ActivityList _blacklistedNotifications;
     
     QVariantList _trayFolderInfos;
 
@@ -196,7 +198,8 @@ private:
     QHash<AccountState *, QElapsedTimer> _timeSinceLastCheck;
 
     QElapsedTimer _guiLogTimer;
-    QSet<long> _notifiedNotifications;
+    QSet<qint64> _notifiedNotifications;
+    QSet<qint64> _activeNotifications;
     QMimeDatabase _mimeDb;
 
     // number of currently running notification requests. If non zero,
@@ -206,6 +209,10 @@ private:
     int _lastTalkNotificationsReceivedCount = 0;
 
     bool _isNotificationFetchRunning = false;
+
+    // used for quota warnings
+    int _lastQuotaPercent = 0;
+    Activity _lastQuotaActivity;
 };
 
 class UserModel : public QAbstractListModel
@@ -252,7 +259,9 @@ public:
         AvatarRole,
         IsCurrentUserRole,
         IsConnectedRole,
-        IdRole
+        IdRole,
+        CanLogoutRole,
+        RemoveAccountTextRole,
     };
 
     [[nodiscard]] AccountAppList appList() const;
@@ -283,6 +292,8 @@ private:
     bool _init = true;
 
     void buildUserList();
+    void addAccsToUserList();
+    void setInitialUser();
 };
 
 class ImageProvider : public QQuickAsyncImageProvider

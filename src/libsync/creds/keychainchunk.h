@@ -7,11 +7,13 @@
 #ifndef KEYCHAINCHUNK_H
 #define KEYCHAINCHUNK_H
 
-#include <QObject>
+#include "owncloudlib.h"
+
+#include "accountfwd.h"
 
 #include <qt6keychain/keychain.h>
 
-#include "accountfwd.h"
+#include <QObject>
 
 // We don't support insecure fallback
 // #define KEYCHAINCHUNK_ENABLE_INSECURE_FALLBACK
@@ -65,10 +67,28 @@ public:
      */
     void setAutoDelete(bool autoDelete);
 
+    /**
+     * Set application name to be used to search the keychain
+     */
+    void setAppName(const QString &AppName);
+
+#ifdef Q_OS_WIN
+    /**
+     * On Windows the credential keys aren't namespaced properly
+     * by qtkeychain. To work around that we manually add namespacing
+     * to the generated keys. See #6125.
+     * It's safe to do that since the key format is changing for 2.4
+     * anyway to include the account ids. That means old keys can be
+     * migrated to new namespaced keys on windows for 2.4. 
+     */
+    void jobKeyPrependAppName(QString &key);
+#endif
+
 protected:
     QString _serviceName;
     Account *_account = nullptr;
     QString _key;
+    QString _appName;
     bool _insecureFallback = false;
     bool _autoDelete = true;
     bool _keychainMigration = false;
@@ -107,7 +127,7 @@ public:
     bool exec();
 
 signals:
-    void finished(KeychainChunk::WriteJob *incomingJob);
+    void finished(OCC::KeychainChunk::WriteJob *incomingJob);
 
 private slots:
     void slotWriteJobDone(QKeychain::Job *incomingJob);
@@ -140,12 +160,12 @@ public:
     bool exec();
 
 signals:
-    void finished(KeychainChunk::ReadJob *incomingJob);
+    void finished(OCC::KeychainChunk::ReadJob *incomingJob);
 
 private slots:
     void slotReadJobDone(QKeychain::Job *incomingJob);
 
-#if defined(Q_OS_UNIX) && !defined(Q_OS_MAC)
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
 private:
     bool _retryOnKeyChainError = true; // true if we haven't done yet any reading from keychain
 #endif
@@ -178,7 +198,7 @@ public:
     bool exec();
 
 signals:
-    void finished(KeychainChunk::DeleteJob *incomingJob);
+    void finished(OCC::KeychainChunk::DeleteJob *incomingJob);
 
 private slots:
     void slotDeleteJobDone(QKeychain::Job *incomingJob);

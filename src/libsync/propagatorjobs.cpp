@@ -53,10 +53,31 @@ bool PropagateLocalRemove::removeRecursively(const QString &path)
     const auto fileInfo = QFileInfo{absolute};
     const auto parentFolderPath = fileInfo.dir().absolutePath();
     const auto parentPermissionsHandler = FileSystem::FilePermissionsRestore{parentFolderPath, FileSystem::FolderPermissions::ReadWrite};
+
+    qCInfo(lcPropagateLocalRemove()) << "delete" << absolute;
+
+    Q_EMIT propagator()->touchedFile(absolute);
+
     const auto success = FileSystem::removeRecursively(absolute,
                                                        [&deleted](const QString &path, bool isDir) {
                                                            // by prepending, a folder deletion may be followed by content deletions
                                                            deleted.prepend(qMakePair(path, isDir));
+                                                       },
+                                                       nullptr,
+                                                       nullptr,
+                                                       [this] (const QString &itemPath, QString *removeError) -> bool {
+                                                           auto result = false;
+
+                                                           if (_deleteToClientTrashBin.contains(itemPath)) {
+                                                               result = FileSystem::moveToTrash(itemPath, removeError);
+                                                               if (!result) {
+                                                                   result = FileSystem::remove(itemPath, removeError);
+                                                               }
+                                                           } else {
+                                                               result = FileSystem::remove(itemPath, removeError);
+                                                           }
+
+                                                           return result;
                                                        });
 
     if (!success) {
@@ -84,7 +105,7 @@ void PropagateLocalRemove::start()
     qCInfo(lcPropagateLocalRemove) << "Start propagate local remove job";
     qCInfo(lcPermanentLog) << "delete" << _item->_file << _item->_discoveryResult;
 
-    _moveToTrash = propagator()->syncOptions()._moveFilesToTrash;
+    _moveToTrash = propagator()->syncOptions()._moveFilesToTrash || _item->_wantsSpecificActions == SyncFileItem::SynchronizationOptions::MoveToClientTrashBin;
 
     if (propagator()->_abortRequested)
         return;
@@ -341,7 +362,7 @@ void PropagateLocalRename::start()
     // if the file is a file underneath a moved dir, the _item->file is equal
     // to _item->renameTarget and the file is not moved as a result.
     qCDebug(lcPropagateLocalRename) << _item->_file << _item->_renameTarget << _item->_originalFile << previousNameInDb << (fileAlreadyMoved ? "original file has already moved" : "original file is still there");
-    qCDebug(lcPropagateLocalRename()) << (FileSystem::fileExists(originalFile) ? "original file exists" : "orignal file is missing") << originalFile << _item->_originalFile;
+    qCDebug(lcPropagateLocalRename()) << (FileSystem::fileExists(originalFile) ? "original file exists" : "original file is missing") << originalFile << _item->_originalFile;
     qCDebug(lcPropagateLocalRename()) << (FileSystem::fileExists(existingFile) ? "existing file exists" : "existing file is missing") << existingFile << previousNameInDb;
     Q_ASSERT(FileSystem::fileExists(propagator()->fullLocalPath(_item->_originalFile)) || FileSystem::fileExists(existingFile));
     if (_item->_file != _item->_renameTarget) {

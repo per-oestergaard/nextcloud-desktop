@@ -60,7 +60,7 @@ int main(int argc, char **argv)
     Q_INIT_RESOURCE(theme);
 
     // OpenSSL 1.1.0: No explicit initialisation or de-initialisation is necessary.
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
     Mac::CocoaInitializer cocoaInit; // RIIA
 #endif
 
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
     auto qmlStyle = QStringLiteral("Fusion");
     auto widgetsStyle = QStringLiteral("");
 
-#if defined Q_OS_MAC
+#if defined Q_OS_MACOS
     qmlStyle = QStringLiteral("macOS");
 #elif defined Q_OS_WIN
     if (const auto osVersion = QOperatingSystemVersion::current().version(); osVersion < QOperatingSystemVersion::Windows11.version()) {
@@ -95,7 +95,6 @@ int main(int argc, char **argv)
 #endif
 
     QQuickStyle::setStyle(qmlStyle);
-    QQuickStyle::setFallbackStyle(QStringLiteral("Fusion"));
 
     OCC::Application app(argc, argv);
 

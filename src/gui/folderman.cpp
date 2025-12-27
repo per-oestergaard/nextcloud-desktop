@@ -21,7 +21,7 @@
 #include <syncengine.h>
 #include "updatee2eefolderusersmetadatajob.h"
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include <CoreServices/CoreServices.h>
 #endif
 
@@ -348,11 +348,15 @@ int FolderMan::setupFoldersMigration()
     ConfigFile cfg;
     QDir storageDir(cfg.configPath());
     _folderConfigPath = cfg.configPath();
+    auto configPath = _folderConfigPath;
 
-    const auto legacyConfigPath = ConfigFile::discoveredLegacyConfigPath();
-    const auto configPath = legacyConfigPath.isEmpty() ? _folderConfigPath : legacyConfigPath;
-
-    qCInfo(lcFolderMan) << "Setup folders from " << configPath << "(migration)";
+#if !DISABLE_ACCOUNT_MIGRATION
+    if (const auto legacyConfigPath = ConfigFile::discoveredLegacyConfigPath();!legacyConfigPath.isEmpty()) {
+        configPath =  legacyConfigPath;
+        qCInfo(lcFolderMan) << "Starting folder migration from legacy path:" << legacyConfigPath;
+    }
+#endif
+    qCInfo(lcFolderMan) << "Setup folders from" << configPath;
 
     QDir dir(configPath);
     // We need to include hidden files just in case the alias starts with '.'
@@ -385,7 +389,8 @@ void FolderMan::backwardMigrationSettingsKeys(QStringList *deleteKeys, QStringLi
         const auto foldersVersion = settings->value(QLatin1String(settingsVersionC), 1).toInt();
         qCInfo(lcFolderMan) << "FolderDefinition::maxSettingsVersion:" << FolderDefinition::maxSettingsVersion();
         if (foldersVersion <= maxFoldersVersion) {
-            for (const auto &folderAlias : settings->childGroups()) {
+            const auto &childGroups = settings->childGroups();
+            for (const auto &folderAlias : childGroups) {
                 settings->beginGroup(folderAlias);
                 const auto folderVersion = settings->value(QLatin1String(settingsVersionC), 1).toInt();
                 if (folderVersion > FolderDefinition::maxSettingsVersion()) {
@@ -536,6 +541,7 @@ void FolderMan::setupLegacyFolder(const QString &fileNamePath, AccountState *acc
             const auto journalPath = settings.value(QLatin1String("journalPath")).toString();
             const auto paused = settings.value(QLatin1String("paused"), false).toBool();
             const auto ignoreHiddenFiles = settings.value(QLatin1String("ignoreHiddenFiles"), false).toBool();
+            const auto virtualFilesMode = settings.value(QLatin1String("virtualFilesMode"), false).toString();
 
             if (path.isEmpty()) {
                 qCDebug(lcFolderMan) << "localPath is empty";
@@ -565,7 +571,21 @@ void FolderMan::setupLegacyFolder(const QString &fileNamePath, AccountState *acc
             folderDefinition.paused = paused;
             folderDefinition.ignoreHiddenFiles = ignoreHiddenFiles;
 
-            if (const auto folder = addFolderInternal(folderDefinition, accountState, std::make_unique<VfsOff>())) {
+            if (const auto vfsMode = Vfs::modeFromString(virtualFilesMode)) {
+                folderDefinition.virtualFilesMode = *vfsMode;
+            } else {
+                qCWarning(lcFolderMan) << "Unknown virtualFilesMode:" << virtualFilesMode << "assuming 'off'";
+            }
+
+            qCDebug(lcFolderMan) << "folderDefinition.alias" << folderDefinition.alias;
+            qCDebug(lcFolderMan) << "folderDefinition.virtualFilesMode" << folderDefinition.virtualFilesMode;
+
+            auto vfs = createVfsFromPlugin(folderDefinition.virtualFilesMode);
+            if (!vfs && folderDefinition.virtualFilesMode != Vfs::Off) {
+                qCWarning(lcFolderMan) << "Could not load plugin for mode" << folderDefinition.virtualFilesMode;
+            }
+
+            if (const auto folder = addFolderInternal(folderDefinition, accountState, std::move(vfs))) {
                 auto ok = true;
                 auto legacyBlacklist = folder->journalDb()->getSelectiveSyncList(SyncJournalDb::SelectiveSyncBlackList,
                                                                                  &ok);
@@ -576,7 +596,7 @@ void FolderMan::setupLegacyFolder(const QString &fileNamePath, AccountState *acc
                 legacyBlacklist << settings.value(QLatin1String("blackList")).toStringList();
                 if (!legacyBlacklist.isEmpty()) {
                     qCInfo(lcFolderMan) << "Legacy selective sync list found:" << legacyBlacklist;
-                    for (const auto &legacyFolder : legacyBlacklist) {
+                    for (const auto &legacyFolder : std::as_const(legacyBlacklist)) {
                         folder->migrateBlackListPath(legacyFolder);
                     }
                     settings.remove(QLatin1String("blackList"));
@@ -593,6 +613,10 @@ void FolderMan::setupLegacyFolder(const QString &fileNamePath, AccountState *acc
 
                 scheduleFolder(folder);
                 emit folderSyncStateChange(folder);
+
+#ifdef Q_OS_WIN
+                Utility::migrateFavLink(folder->cleanPath());
+#endif
             }
             settings.endGroup(); // folder alias
         }
@@ -604,6 +628,9 @@ void FolderMan::setupLegacyFolder(const QString &fileNamePath, AccountState *acc
 
     settings.beginGroup(settingsFoldersWithPlaceholdersC);
     migrateFoldersGroup(settingsFoldersWithPlaceholdersC);
+#ifdef Q_OS_WIN
+    _navigationPaneHelper.scheduleUpdateCloudStorageRegistry();
+#endif
     settings.endGroup();
 
     settings.beginGroup(settingsFoldersC);
@@ -1528,7 +1555,7 @@ void FolderMan::slotWipeFolderForAccount(AccountState *accountState)
         // wipe data
         QDir userFolder(f->path());
         if (userFolder.exists()) {
-            success = userFolder.removeRecursively();
+            success = FileSystem::removeRecursively(f->path());
             if (!success) {
                 qCWarning(lcFolderMan) << "Failed to remove existing folder " << f->path();
             } else {
@@ -1567,11 +1594,10 @@ void FolderMan::setDirtyProxy()
         if (folder 
             && folder->accountState() 
             && folder->accountState()->account()
-            && folder->accountState()->account()->networkAccessManager()
-            && folder->accountState()->account()->networkProxySetting() == Account::AccountNetworkProxySetting::GlobalProxy) {
+            && folder->accountState()->account()->networkAccessManager()) {
             // Need to do this so we do not use the old determined system proxy
             const auto proxy = QNetworkProxy(QNetworkProxy::DefaultProxy);
-            folder->accountState()->account()->networkAccessManager()->setProxy(proxy);
+            folder->accountState()->account()->setProxyType(proxy.type());
         }
     }
 }
@@ -2058,7 +2084,7 @@ void FolderMan::slotSetupPushNotifications(const Folder::Map &folderMap)
 
 void FolderMan::slotProcessFilesPushNotification(Account *account)
 {
-    qCInfo(lcFolderMan) << "Got files push notification for account" << account;
+    qCDebug(lcFolderMan) << "received notify_file push notification account=" << account->displayName();
 
     for (auto folder : std::as_const(_folderMap)) {
         // Just run on the folders that belong to this account
@@ -2066,7 +2092,27 @@ void FolderMan::slotProcessFilesPushNotification(Account *account)
             continue;
         }
 
-        qCInfo(lcFolderMan) << "Schedule folder" << folder << "for sync";
+        qCInfo(lcFolderMan).nospace() << "scheduling sync folder=" << folder->alias() << " account=" << account->displayName() << " reason=notify_file";
+        scheduleFolder(folder);
+    }
+}
+
+void FolderMan::slotProcessFileIdsPushNotification(Account *account, const QList<qint64> &fileIds)
+{
+    qCDebug(lcFolderMan).nospace() << "received notify_file_id push notification account=" << account->displayName() << " fileIds=" << fileIds;
+
+    for (auto folder : std::as_const(_folderMap)) {
+        // Just run on the folders that belong to this account
+        if (folder->accountState()->account() != account) {
+            continue;
+        }
+
+        if (!folder->hasFileIds(fileIds)) {
+            qCDebug(lcFolderMan).nospace() << "no matching file ids, ignoring folder=" << folder->alias() << " account=" << account->displayName();
+            continue;
+        }
+
+        qCInfo(lcFolderMan).nospace() << "scheduling sync folder=" << folder->alias() << " account=" << account->displayName() << " reason=notify_file_id";
         scheduleFolder(folder);
     }
 }
@@ -2078,6 +2124,7 @@ void FolderMan::slotConnectToPushNotifications(const AccountPtr &account)
     if (pushNotificationsFilesReady(account)) {
         qCInfo(lcFolderMan) << "Push notifications ready";
         connect(pushNotifications, &PushNotifications::filesChanged, this, &FolderMan::slotProcessFilesPushNotification, Qt::UniqueConnection);
+        connect(pushNotifications, &PushNotifications::fileIdsChanged, this, &FolderMan::slotProcessFileIdsPushNotification, Qt::UniqueConnection);
     }
 }
 

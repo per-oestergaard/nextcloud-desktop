@@ -48,6 +48,7 @@
 #include <QProcess>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QStorageInfo>
 #include <qtextcodec.h>
 
 namespace OCC {
@@ -396,7 +397,7 @@ void OCC::SyncEngine::slotItemDiscovered(const OCC::SyncFileItemPtr &item)
 
             // Update on-disk virtual file metadata
             if (modificationHappened && item->_type == ItemTypeVirtualFile) {
-                auto r = _syncOptions._vfs->updateMetadata(filePath, item->_modtime, item->_size, item->_fileId);
+                auto r = _syncOptions._vfs->updateMetadata(*item, filePath, {});
                 if (!r) {
                     item->_status = SyncFileItem::Status::NormalError;
                     item->_instruction = CSYNC_INSTRUCTION_ERROR;
@@ -632,6 +633,7 @@ void SyncEngine::startSync()
     _remnantReadOnlyFolders.clear();
 
     _discoveryPhase = std::make_unique<DiscoveryPhase>();
+    _discoveryPhase->_fileSystemReliablePermissions = _filesystemPermissionsReliable;
     _discoveryPhase->_leadingAndTrailingSpacesFilesAllowed = _leadingAndTrailingSpacesFilesAllowed;
     _discoveryPhase->_account = _account;
     _discoveryPhase->_excludes = _excludedFiles.data();
@@ -760,6 +762,8 @@ void SyncEngine::startSync()
     
     _discoveryPhase->startJob(discoveryJob);
     connect(discoveryJob, &ProcessDirectoryJob::etag, this, &SyncEngine::slotRootEtagReceived);
+    connect(discoveryJob, &ProcessDirectoryJob::updatedRootFolderQuota, account().data(), &Account::rootFolderQuotaChanged);
+    connect(discoveryJob, &ProcessDirectoryJob::rootFileIdReceived, this, &SyncEngine::slotRootFileIdReceived);
     connect(_discoveryPhase.get(), &DiscoveryPhase::addErrorToGui, this, &SyncEngine::addErrorToGui);
 }
 
@@ -789,6 +793,16 @@ void SyncEngine::slotRootEtagReceived(const QByteArray &e, const QDateTime &time
         _remoteRootEtag = e;
         emit rootEtag(_remoteRootEtag, time);
     }
+}
+
+void SyncEngine::slotRootFileIdReceived(const qint64 fileId)
+{
+    if (_rootFileIdReceived) {
+        return;
+    }
+    _rootFileId = fileId;
+    _rootFileIdReceived = true;
+    emit rootFileIdReceived(fileId);
 }
 
 void SyncEngine::slotNewItem(const SyncFileItemPtr &item)
@@ -1062,22 +1076,6 @@ void SyncEngine::finishSync()
     emit transmissionProgress(*_progressInfo);
     _progressInfo->startEstimateUpdates();
 
-           // post update phase script: allow to tweak stuff by a custom script in debug mode.
-    if (!qEnvironmentVariableIsEmpty("OWNCLOUD_POST_UPDATE_SCRIPT")) {
-#ifndef NDEBUG
-        const QString script = qEnvironmentVariable("OWNCLOUD_POST_UPDATE_SCRIPT");
-
-        qCDebug(lcEngine) << "Post Update Script: " << script;
-        auto scriptArgs = script.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-        if (scriptArgs.size() > 0) {
-            const auto scriptExecutable = scriptArgs.takeFirst();
-            QProcess::execute(scriptExecutable, scriptArgs);
-        }
-#else
-        qCWarning(lcEngine) << "**** Attention: POST_UPDATE_SCRIPT installed, but not executed because compiled with NDEBUG";
-#endif
-    }
-
     // do a database commit
     _journal->commit(QStringLiteral("post treewalk"));
 
@@ -1173,6 +1171,8 @@ void SyncEngine::handleRemnantReadOnlyFolders()
             const auto deletionCallback = [this] (const QString &deleteItem, bool) {
                 slotAddTouchedFile(deleteItem);
             };
+
+            qCInfo(lcEngine()) << "delete" << _localPath + oneFolder->_file;
             FileSystem::removeRecursively(_localPath + oneFolder->_file, deletionCallback, nullptr, deletionCallback);
         } else {
             FileSystem::remove(_localPath + oneFolder->_file);
@@ -1260,7 +1260,7 @@ void SyncEngine::setLocalDiscoveryOptions(LocalDiscoveryStyle style, std::set<QS
         // only execute if logging is enabled
         auto debug = qDebug(lcEngine);
         debug << "paths to discover locally";
-        for (auto path : _localDiscoveryPaths) {
+        for (const auto &path : _localDiscoveryPaths) {
             debug << path;
         }
     }
@@ -1290,6 +1290,11 @@ void SyncEngine::setSingleItemDiscoveryOptions(const SingleItemDiscoveryOptions 
 const SyncEngine::SingleItemDiscoveryOptions &SyncEngine::singleItemDiscoveryOptions() const
 {
     return _singleItemDiscoveryOptions;
+}
+
+void SyncEngine::setFilesystemPermissionsReliable(bool reliable)
+{
+    _filesystemPermissionsReliable = reliable;
 }
 
 bool SyncEngine::shouldDiscoverLocally(const QString &path) const
@@ -1353,8 +1358,9 @@ void SyncEngine::wipeVirtualFiles(const QString &localPath, SyncJournalDb &journ
 {
     qCInfo(lcEngine) << "Wiping virtual files inside" << localPath;
     const auto resGetFilesBelowPath = journal.getFilesBelowPath(QByteArray(), [&](const SyncJournalFileRecord &rec) {
-        if (rec._type != ItemTypeVirtualFile && rec._type != ItemTypeVirtualFileDownload)
+        if (rec._type != ItemTypeVirtualFile && rec._type != ItemTypeVirtualFileDownload && rec._type != ItemTypeVirtualDirectory) {
             return;
+        }
 
         qCDebug(lcEngine) << "Removing db record for" << rec.path();
         if (!journal.deleteFileRecord(rec._path)) {

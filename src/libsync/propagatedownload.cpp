@@ -5,6 +5,7 @@
  */
 
 #include "config.h"
+#include "libsync/creds/abstractcredentials.h"
 #include "owncloudpropagator_p.h"
 #include "propagatedownload.h"
 #include "networkjobs.h"
@@ -116,12 +117,13 @@ void GETFileJob::start()
     }
 
     req.setPriority(QNetworkRequest::LowPriority); // Long downloads must not block non-propagation jobs.
-    req.setDecompressedSafetyCheckThreshold(CustomDecompressedSafetyCheckThreshold);
+    req.setDecompressedSafetyCheckThreshold(_decompressionThresholdBase + CustomDecompressedSafetyCheckThreshold);
 
     if (_directDownloadUrl.isEmpty()) {
         sendRequest("GET", makeDavUrl(path()), req);
     } else {
         // Use direct URL
+        req.setAttribute(AbstractCredentials::DontAddCredentialsAttribute, true);
         sendRequest("GET", _directDownloadUrl, req);
     }
 
@@ -533,11 +535,6 @@ void PropagateDownloadFile::startAfterIsEncryptedIsChecked()
         const auto fsPath = propagator()->fullLocalPath(_item->_file);
         makeParentFolderModifiable(fsPath);
 
-        // do a klaas' case clash check.
-        if (propagator()->localFileNameClash(_item->_file)) {
-            done(SyncFileItem::FileNameClash, tr("File %1 can not be downloaded because of a local file name clash!").arg(QDir::toNativeSeparators(_item->_file)), ErrorCategory::GenericError);
-            return;
-        }
         auto r = vfs->createPlaceholder(*_item);
         if (!r) {
             done(SyncFileItem::NormalError, r.error(), ErrorCategory::GenericError);
@@ -741,6 +738,9 @@ void PropagateDownloadFile::startDownload()
         _job = new GETFileJob(propagator()->account(),
             url,
             &_tmpFile, headers, expectedEtagForResume, _resumeStart, this);
+    }
+    if (_item->_size >= 0) {
+        _job->setDecompressionThresholdBase(_item->_size);
     }
     _job->setBandwidthManager(&propagator()->_bandwidthManager);
     connect(_job.data(), &GETFileJob::finishedSignal, this, &PropagateDownloadFile::slotGetFinished);
@@ -1339,13 +1339,13 @@ void PropagateDownloadFile::downloadFinished()
         return;
     }
 
+    FileSystem::setFileHidden(filename, false);
+
     if (_needParentFolderRestorePermissions) {
         FileSystem::setFolderPermissions(QString::fromStdWString(_parentPath.wstring()), FileSystem::FolderPermissions::ReadOnly);
         emit propagator()->touchedFile(QString::fromStdWString(_parentPath.wstring()));
         _needParentFolderRestorePermissions = false;
     }
-
-    FileSystem::setFileHidden(filename, false);
 
     // Maybe we downloaded a newer version of the file than we thought we would...
     // Get up to date information for the journal.

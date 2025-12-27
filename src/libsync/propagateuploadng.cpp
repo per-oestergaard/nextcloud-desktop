@@ -368,6 +368,7 @@ void PropagateUploadFileNG::startNextChunk()
     QMap<QByteArray, QByteArray> headers;
     headers["OC-Chunk-Offset"] = QByteArray::number(_sent);
     headers["Destination"] = destinationHeader();
+    headers[QByteArrayLiteral("OC-Total-Length")] = QByteArray::number(fileSize);
 
     _sent += _currentChunkSize;
     const auto url = chunkUrl(_currentChunk);
@@ -540,7 +541,9 @@ void PropagateUploadFileNG::slotMoveJobFinished()
 
     if (_item->_etag.isEmpty()) {
         qCWarning(lcPropagateUploadNG) << "Server did not return an ETAG" << _item->_file;
-        abortWithError(SyncFileItem::NormalError, tr("Missing ETag from server"));
+        const auto errorMessage = _item->isDirectory() ? tr("Folder is not accessible on the server.", "server error")
+                                                       : tr("File is not accessible on the server.", "server error");
+        abortWithError(SyncFileItem::NormalError, errorMessage);
         return;
     }
     finalize();

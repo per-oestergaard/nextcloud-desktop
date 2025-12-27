@@ -15,6 +15,7 @@
 #include <csync.h>
 #include "common/utility.h"
 #include "owncloudlib.h"
+#include "account.h"
 
 namespace OCC {
 
@@ -36,9 +37,17 @@ public:
     static QString printQNetworkProxy(const QNetworkProxy &proxy);
     static const char *proxyTypeToCStr(QNetworkProxy::ProxyType type);
 
+    static constexpr char proxyTypeC[] = "Proxy/type";
+    static constexpr char proxyHostC[] = "Proxy/host";
+    static constexpr char proxyPortC[] = "Proxy/port";
+    static constexpr char proxyUserC[] = "Proxy/user";
+    static constexpr char proxyPassC[] = "Proxy/pass";
+    static constexpr char proxyNeedsAuthC[] = "Proxy/needsAuth";
+
 public slots:
     void setupQtProxyFromConfig();
     void saveProxyConfigurationFromSettings(const QSettings &settings);
+    void cleanupGlobalNetworkConfiguration();
 };
 
 class OWNCLOUDSYNC_EXPORT SystemProxyRunnable : public QObject, public QRunnable

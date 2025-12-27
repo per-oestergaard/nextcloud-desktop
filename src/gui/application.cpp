@@ -9,24 +9,25 @@
 #include <iostream>
 #include <random>
 
-#include "config.h"
 #include "account.h"
+#include "accountmanager.h"
 #include "accountsetupcommandlinemanager.h"
 #include "accountstate.h"
-#include "editlocallymanager.h"
+#include "clientproxy.h"
+#include "config.h"
+#include "configfile.h"
 #include "connectionvalidator.h"
+#include "creds/abstractcredentials.h"
+#include "editlocallymanager.h"
 #include "folder.h"
 #include "folderman.h"
 #include "logger.h"
-#include "configfile.h"
+#include "pushnotifications.h"
+#include "shellextensionsserver.h"
 #include "socketapi/socketapi.h"
 #include "sslerrordialog.h"
 #include "theme.h"
-#include "clientproxy.h"
-#include "accountmanager.h"
-#include "creds/abstractcredentials.h"
-#include "pushnotifications.h"
-#include "shellextensionsserver.h"
+#include "updatechannel.h"
 
 #if defined(BUILD_UPDATER)
 #include "updater/ocupdater.h"
@@ -88,7 +89,9 @@ namespace {
         "  --isvfsenabled             : whether to set a VFS or non-VFS folder (1 for 'yes' or 0 for 'no') when creating an account via command-line.\n"
         "  --remotedirpath            : (optional) path to a remote subfolder when creating an account via command-line.\n"
         "  --serverurl                : a server URL to use when creating an account via command-line.\n"
+#if !DISABLE_ACCOUNT_MIGRATION
         "  --forcelegacyconfigimport  : forcefully import account configurations from legacy clients (if available).\n"
+#endif
         "  --reverse            : use a reverse layout direction.\n";
 
     QString applicationTrPath()
@@ -101,7 +104,7 @@ namespace {
         }
 #if defined(Q_OS_WIN)
         return QApplication::applicationDirPath() + QLatin1String("/i18n/");
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
         return QApplication::applicationDirPath() + QLatin1String("/../Resources/Translations"); // path defaults to app dir.
 #elif defined(Q_OS_UNIX)
         if (qEnvironmentVariableIsSet("APPIMAGE")) {
@@ -117,19 +120,21 @@ namespace {
 
 bool Application::configVersionMigration()
 {
+    ConfigFile configFile;
+    const auto shouldTryToMigrate = configFile.shouldTryToMigrate();
+    if (!shouldTryToMigrate) {
+        qCInfo(lcApplication) << "This is not an upgrade/downgrade/migration. Proceed to read current application config file.";
+        configFile.setMigrationPhase(ConfigFile::MigrationPhase::Done);
+        return false;
+    }
+
+    configFile.setMigrationPhase(ConfigFile::MigrationPhase::SetupConfigFile);
     QStringList deleteKeys, ignoreKeys;
     AccountManager::backwardMigrationSettingsKeys(&deleteKeys, &ignoreKeys);
     FolderMan::backwardMigrationSettingsKeys(&deleteKeys, &ignoreKeys);
-
-    ConfigFile configFile;
-
-    // Did the client version change?
-    // (The client version is adjusted further down)
-    const auto currentVersion = QVersionNumber::fromString(MIRALL_VERSION_STRING);
-    const auto previousVersion = QVersionNumber::fromString(configFile.clientVersionString());
-    const auto versionChanged = previousVersion != currentVersion;
-    const auto downgrading = previousVersion > currentVersion;
-
+    
+    qCDebug(lcApplication) << "Migration is in progress:"  << configFile.isMigrationInProgress();
+    const auto versionChanged = configFile.hasVersionChanged();
     if (versionChanged) {
         qCInfo(lcApplication) << "Version changed. Removing updater settings from config.";
         configFile.cleanUpdaterConfiguration();
@@ -175,7 +180,7 @@ bool Application::configVersionMigration()
                "Continuing will mean <b>%2 these settings</b>.<br>"
                "<br>"
                "The current configuration file was already backed up to <i>%3</i>.")
-                .arg((downgrading ? tr("newer", "newer software version") : tr("older", "older software version")),
+                .arg((configFile.isDowngrade() ? tr("newer", "newer software version") : tr("older", "older software version")),
                      deleteKeys.isEmpty()? tr("ignoring") : tr("deleting"),
                      backupFilesList.join("<br>")));
         box.addButton(tr("Quit"), QMessageBox::AcceptRole);
@@ -199,6 +204,7 @@ bool Application::configVersionMigration()
         }
     }
 
+    configFile.setClientPreviousVersionString(configFile.clientVersionString());
     configFile.setClientVersionString(MIRALL_VERSION_STRING);
     return true;
 }
@@ -289,11 +295,16 @@ Application::Application(int &argc, char **argv)
         setupConfigFile();
     }
 
+    // In the config, set the enterprise update channel to invalid, so it can be bumped up
+    // when recieving server capabilities.
+    ConfigFile().setDesktopEnterpriseChannel(UpdateChannel::Invalid.toString());
+
     if (_theme->doNotUseProxy()) {
         ConfigFile().setProxyType(QNetworkProxy::NoProxy);
-        for (const auto &accountState : AccountManager::instance()->accounts()) {
+        const auto &allAccounts = AccountManager::instance()->accounts();
+        for (const auto &accountState : allAccounts) {
             if (accountState && accountState->account()) {
-                accountState->account()->setNetworkProxySetting(Account::AccountNetworkProxySetting::GlobalProxy);
+                accountState->account()->setProxyType(QNetworkProxy::NoProxy);
             }
         }
     }
@@ -371,7 +382,6 @@ Application::Application(int &argc, char **argv)
     }
 
     _theme->setSystrayUseMonoIcons(ConfigFile().monoIcons());
-    connect(_theme, &Theme::systrayUseMonoIconsChanged, _gui, &ownCloudGui::slotComputeOverallSyncStatus);
     connect(this, &Application::systemPaletteChanged,
             _theme, &Theme::systemPaletteHasChanged);
 
@@ -389,6 +399,7 @@ Application::Application(int &argc, char **argv)
     // Setting up the gui class will allow tray notifications for the
     // setup that follows, like folder setup
     _gui = new ownCloudGui(this);
+    connect(_theme, &Theme::systrayUseMonoIconsChanged, _gui, &ownCloudGui::slotComputeOverallSyncStatus);
     if (_showLogWindow) {
         _gui->slotToggleLogBrowser(); // _showLogWindow is set in parseOptions.
     }
@@ -396,6 +407,16 @@ Application::Application(int &argc, char **argv)
 #if WITH_LIBCLOUDPROVIDERS
     _gui->setupCloudProviders();
 #endif
+
+    if (_theme->doNotUseProxy()) {
+        ConfigFile().setProxyType(QNetworkProxy::NoProxy);
+        const auto &allAccounts = AccountManager::instance()->accounts();
+        for (const auto &accountState : allAccounts) {
+            if (accountState && accountState->account()) {
+                accountState->account()->setProxyType(QNetworkProxy::NoProxy);
+            }
+        }
+    }
 
     _proxy.setupQtProxyFromConfig(); // folders have to be defined first, than we set up the Qt proxy.
 
@@ -471,11 +492,21 @@ Application::~Application()
 void Application::setupAccountsAndFolders()
 {
     _folderManager.reset(new FolderMan);
-    FolderMan::instance()->setSyncEnabled(true);
-
+    ConfigFile configFile;
+    configFile.setMigrationPhase(ConfigFile::MigrationPhase::SetupUsers);
     const auto accountsRestoreResult = restoreLegacyAccount();
+    if (accountsRestoreResult == AccountManager::AccountsNotFound || accountsRestoreResult == AccountManager::AccountsRestoreFailure) {
+        qCWarning(lcApplication) << "Migration result: " << accountsRestoreResult;
+        qCDebug(lcApplication) << "is migration disabled?" << DISABLE_ACCOUNT_MIGRATION;
+        qCWarning(lcApplication) << "No accounts were migrated, prompting user to set up accounts and folders from scratch.";
+        configFile.setMigrationPhase(ConfigFile::MigrationPhase::Done);
 
+        return;
+    }
+
+    configFile.setMigrationPhase(ConfigFile::MigrationPhase::SetupFolders);
     const auto foldersListSize = FolderMan::instance()->setupFolders();
+    FolderMan::instance()->setSyncEnabled(true);
 
     const auto prettyNamesList = [](const QList<AccountStatePtr> &accounts) {
         QStringList list;
@@ -485,39 +516,33 @@ void Application::setupAccountsAndFolders()
         return list.join("\n");
     };
 
-    if (const auto accounts = AccountManager::instance()->accounts();
-        accountsRestoreResult == AccountManager::AccountsRestoreSuccessFromLegacyVersion
-        && !accounts.isEmpty()) {
-
-        const auto accountsListSize = accounts.size();
-        if (Theme::instance()->displayLegacyImportDialog()) {
-            const auto accountsRestoreMessage = accountsListSize > 1
-                ? tr("%1 accounts", "number of accounts imported").arg(QString::number(accountsListSize))
-                : tr("1 account");
-            const auto foldersRestoreMessage = foldersListSize > 1
-                ? tr("%1 folders", "number of folders imported").arg(QString::number(foldersListSize))
-                : tr("1 folder");
-            const auto messageBox = new QMessageBox(QMessageBox::Information,
-                                                    tr("Legacy import"),
-                                                    tr("Imported %1 and %2 from a legacy desktop client.\n%3",
-                                                       "number of accounts and folders imported. list of users.")
-                                                        .arg(accountsRestoreMessage,
-                                                             foldersRestoreMessage,
-                                                             prettyNamesList(accounts))
-                                                    );
-            messageBox->setWindowModality(Qt::NonModal);
-            messageBox->open();
-        }
-
-        qCWarning(lcApplication) << "Migration result AccountManager::AccountsRestoreResult:" << accountsRestoreResult;
-        qCWarning(lcApplication) << "Folders migrated: " << foldersListSize;
-        qCWarning(lcApplication) << accountsListSize << "account(s) were migrated:" << prettyNamesList(accounts);
-
-    } else {
-        qCWarning(lcApplication) << "Migration result AccountManager::AccountsRestoreResult: " << accountsRestoreResult;
-        qCWarning(lcApplication) << "Folders migrated: " << foldersListSize;
-        qCWarning(lcApplication) << "No accounts were migrated, prompting user to set up accounts and folders from scratch.";
+    const auto accounts = AccountManager::instance()->accounts();
+    const auto accountsListSize = accounts.size();
+    if (accountsRestoreResult == AccountManager::AccountsRestoreSuccessFromLegacyVersion
+        && Theme::instance()->displayLegacyImportDialog()
+        && !AccountManager::instance()->forceLegacyImport()
+        && accountsListSize > 0) {
+        const auto accountsRestoreMessage = accountsListSize > 1
+            ? tr("%1 accounts", "number of accounts imported").arg(QString::number(accountsListSize))
+            : tr("1 account");
+        const auto foldersRestoreMessage = foldersListSize > 1
+            ? tr("%1 folders", "number of folders imported").arg(QString::number(foldersListSize))
+            : tr("1 folder");
+        const auto messageBox = new QMessageBox(QMessageBox::Information,
+                                                tr("Legacy import"),
+                                                tr("Imported %1 and %2 from a legacy desktop client.\n%3",
+                                                   "number of accounts and folders imported. list of users.")
+                                                    .arg(accountsRestoreMessage,
+                                                         foldersRestoreMessage,
+                                                         prettyNamesList(accounts))
+                                                );
+        messageBox->setWindowModality(Qt::NonModal);
+        messageBox->open();
     }
+
+    qCWarning(lcApplication) << "Account(s) setup result:" << accountsRestoreResult;
+    qCWarning(lcApplication) << foldersListSize << "folder(s) migrated";
+    qCWarning(lcApplication) << accountsListSize << "account(s) migrated:" << prettyNamesList(accounts);
 }
 
 void Application::setupConfigFile()
@@ -866,9 +891,13 @@ void Application::parseOptions(const QStringList &options)
             if (it.hasNext() && !it.peekNext().startsWith(QLatin1String("--"))) {
                 _setLanguage = it.next();
             }
-        } else if (option == QStringLiteral("--forcelegacyconfigimport")) {
+        }
+#if !DISABLE_ACCOUNT_MIGRATION
+        else if (option == QStringLiteral("--forcelegacyconfigimport")) {
             AccountManager::instance()->setForceLegacyImport(true);
-        } else {
+        }
+#endif
+        else {
             QString errorMessage;
             if (!AccountSetupCommandLineManager::instance()->parseCommandlineOption(option, it, errorMessage)) {
                 if (!errorMessage.isEmpty()) {

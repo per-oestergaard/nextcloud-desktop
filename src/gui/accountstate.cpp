@@ -30,6 +30,8 @@
 
 #include <cmath>
 
+using namespace Qt::StringLiterals;
+
 namespace OCC {
 
 Q_LOGGING_CATEGORY(lcAccountState, "nextcloud.gui.account.state", QtInfoMsg)
@@ -294,7 +296,12 @@ void AccountState::checkConnectivity()
     // make little sense, we might be missing client certs.
     if (!account()->credentials()->wasFetched()) {
         _waitingForNewCredentials = true;
-        account()->credentials()->fetchFromKeychain();
+        ConfigFile configFile;
+        const auto shouldTryUnbrandedToBrandedMigration = configFile.shouldTryUnbrandedToBrandedMigration();
+        qCDebug(lcAccountState) << "shouldTryUnbrandedToBrandedMigration?" << shouldTryUnbrandedToBrandedMigration;
+        qCDebug(lcAccountState) << "migrationPhase?" << configFile.migrationPhase();
+        const auto appName = shouldTryUnbrandedToBrandedMigration ? configFile.unbrandedAppName : "";
+        account()->credentials()->fetchFromKeychain(appName);
         return;
     }
 
@@ -490,6 +497,10 @@ void AccountState::slotCredentialsFetched(AbstractCredentials *)
     qCInfo(lcAccountState) << "Fetched credentials for" << _account->url().toString()
                            << "attempting to connect";
     _waitingForNewCredentials = false;
+    ConfigFile configFile;
+    if (configFile.isMigrationInProgress()) {
+        configFile.setMigrationPhase(ConfigFile::MigrationPhase::Done);
+    }
     checkConnectivity();
 }
 
@@ -629,8 +640,8 @@ void AccountState::slotNavigationAppsFetched(const QJsonDocument &reply, int sta
                     for (const QJsonValue &value : navLinks) {
                         auto navLink = value.toObject();
 
-                        auto *app = new AccountApp(navLink.value("name").toString(), QUrl(navLink.value("href").toString()),
-                            navLink.value("id").toString(), QUrl(navLink.value("icon").toString()));
+                        auto *app = new AccountApp(navLink.value("name"_L1).toString(), QUrl(navLink.value("href"_L1).toString()),
+                            navLink.value("id"_L1).toString(), QUrl(navLink.value("icon"_L1).toString()));
 
                         _apps << app;
                     }

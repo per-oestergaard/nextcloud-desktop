@@ -6,16 +6,18 @@ find_package(Qt${QT_MAJOR_VERSION} REQUIRED COMPONENTS Widgets Svg Qml Quick Qui
 find_package(KF6Archive REQUIRED)
 find_package(KF6GuiAddons)
 
-if (NOT TARGET Qt::GuiPrivate)
-    message(FATAL_ERROR "Could not find GuiPrivate component of Qt. It might be shipped as a separate package, please check that.")
-endif()
-
 if(CMAKE_BUILD_TYPE MATCHES Debug)
     add_definitions(-DQT_QML_DEBUG)
 endif()
 
 IF(BUILD_UPDATER)
     add_subdirectory(updater)
+endif()
+
+# Icon switch: if branding is done, use the neutral state icons
+set(STATE_SUBDIR "")
+if(APPLICATION_NAME STREQUAL "Nextcloud")
+    set(STATE_SUBDIR "nextcloud/")
 endif()
 
 configure_file(${CMAKE_SOURCE_DIR}/theme.qrc.in ${CMAKE_SOURCE_DIR}/theme.qrc)
@@ -49,6 +51,7 @@ set(client_UI_SRCS
     wizard/termsofservicecheckwidget.ui
     wizard/webview.ui
     wizard/welcomepage.ui
+    wizard/proxysettings.ui
 )
 
 qt_add_resources(client_UI_SRCS ../../resources.qrc ${CMAKE_SOURCE_DIR}/theme.qrc)
@@ -148,7 +151,6 @@ set(client_SRCS
     syncrunfilelog.cpp
     systray.h
     systray.cpp
-    EncryptionTokenSelectionWindow.qml
     userinfo.h
     userinfo.cpp
     vfsdownloaderrordialog.h
@@ -254,7 +256,16 @@ set(client_SRCS
     wizard/welcomepage.cpp
     wizard/linklabel.h
     wizard/linklabel.cpp
+    wizard/wizardproxysettingsdialog.h
+    wizard/wizardproxysettingsdialog.cpp
     )
+
+if (NOT DISABLE_ACCOUNT_MIGRATION)
+    list(APPEND client_SRCS
+        legacyaccountselectiondialog.h
+        legacyaccountselectiondialog.cpp
+    )
+endif()
 
 if (WITH_WEBENGINE)
   list(APPEND client_SRCS
@@ -290,18 +301,13 @@ IF( APPLE )
             macOS/fileprovider.h
             macOS/fileprovider_mac.mm
             macOS/fileproviderdomainmanager.h
-            macOS/fileproviderdomainmanager_mac.mm
-            macOS/fileproviderdomainsyncstatus.h
-            macOS/fileproviderdomainsyncstatus_mac.mm
+            macOS/fileproviderdomainmanager.mm
             macOS/fileprovidereditlocallyjob.h
             macOS/fileprovidereditlocallyjob.cpp
             macOS/fileprovidereditlocallyjob_mac.mm
             macOS/fileprovideritemmetadata.h
             macOS/fileprovideritemmetadata.cpp
             macOS/fileprovideritemmetadata_mac.mm
-            macOS/fileprovidermaterialiseditemsmodel.h
-            macOS/fileprovidermaterialiseditemsmodel.cpp
-            macOS/fileprovidermaterialiseditemsmodel_mac.mm
             macOS/fileprovidersettingscontroller.h
             macOS/fileprovidersettingscontroller_mac.mm
             macOS/fileprovidersocketcontroller.h
@@ -309,8 +315,6 @@ IF( APPLE )
             macOS/fileprovidersocketserver.h
             macOS/fileprovidersocketserver.cpp
             macOS/fileprovidersocketserver_mac.mm
-            macOS/fileproviderstorageuseenumerationobserver.h
-            macOS/fileproviderstorageuseenumerationobserver.m
             macOS/fileproviderutils.h
             macOS/fileproviderutils_mac.mm
             macOS/fileproviderxpc.h
@@ -471,33 +475,6 @@ set(APP_ICON_SVG "${theme_dir}/colored/${APPLICATION_ICON_NAME}-icon.svg")
 set(APP_SECONDARY_ICONS "${theme_dir}/colored/icons")
 set(APP_ICON_WIN_FOLDER_SVG "${APP_SECONDARY_ICONS}/${APPLICATION_ICON_NAME}-icon-win-folder.svg")
 
-set(RC_DEPENDENCIES "")
-
-if(WIN32)
-    if (EXISTS ${APP_ICON_WIN_FOLDER_SVG})
-        get_filename_component(output_icon_name_win ${APP_ICON_WIN_FOLDER_SVG} NAME_WLE)
-        # Product icon (for smallest size)
-        foreach(size IN ITEMS 16;20)
-            generate_sized_png_from_svg(${APP_ICON_SVG} ${size} OUTPUT_ICON_NAME ${output_icon_name_win} OUTPUT_ICON_PATH "${APP_SECONDARY_ICONS}/")
-        endforeach()
-
-        # Product icon with Windows folder (for sizes larger than 20)
-        foreach(size IN ITEMS 24;32;40;48;64;128;256;512;1024)
-            generate_sized_png_from_svg(${APP_ICON_WIN_FOLDER_SVG} ${size} OUTPUT_ICON_NAME ${output_icon_name_win} OUTPUT_ICON_PATH "${APP_SECONDARY_ICONS}/")
-        endforeach()
-
-        file(GLOB_RECURSE OWNCLOUD_ICONS_WIN_FOLDER "${APP_SECONDARY_ICONS}/*-${APPLICATION_ICON_NAME}-icon*")
-        set(APP_ICON_WIN_FOLDER_ICO_NAME "${APPLICATION_ICON_NAME}-win-folder")
-        set(RC_DEPENDENCIES "${RC_DEPENDENCIES} ${APP_ICON_WIN_FOLDER_ICO_NAME}.ico")
-        ecm_add_app_icon(APP_ICON_WIN_FOLDER ICONS "${OWNCLOUD_ICONS_WIN_FOLDER}" SIDEBAR_ICONS "${OWNCLOUD_SIDEBAR_ICONS}" OUTFILE_BASENAME "${APP_ICON_WIN_FOLDER_ICO_NAME}" ICON_INDEX 2)
-    endif()
-endif()
-# --------------------------------------
-
-if (NOT ${RC_DEPENDENCIES} STREQUAL "")
-    string(STRIP ${RC_DEPENDENCIES} RC_DEPENDENCIES)
-endif()
-
 # generate primary icon from SVG (due to Win .ico vs .rc dependency issues, primary icon must always be generated last)--------------------------------------
 if(WIN32)
     foreach(size IN ITEMS 16;20;24;32;40;48;64;128;256;512;1024)
@@ -509,42 +486,40 @@ else()
     endforeach()
 endif()
 
-file(GLOB_RECURSE OWNCLOUD_ICONS "${theme_dir}/colored/*-${APPLICATION_ICON_NAME}-icon*")
+file(GLOB OWNCLOUD_ICONS "${theme_dir}/colored/*-${APPLICATION_ICON_NAME}-icon*")
 
 if(APPLE)
     file(GLOB_RECURSE OWNCLOUD_SIDEBAR_ICONS "${theme_dir}/colored/*-${APPLICATION_ICON_NAME}-sidebar*")
     MESSAGE(STATUS "OWNCLOUD_SIDEBAR_ICONS: ${APPLICATION_ICON_NAME}: ${OWNCLOUD_SIDEBAR_ICONS}")
 endif()
 
-ecm_add_app_icon(APP_ICON RC_DEPENDENCIES ${RC_DEPENDENCIES} ICONS "${OWNCLOUD_ICONS}" SIDEBAR_ICONS "${OWNCLOUD_SIDEBAR_ICONS}" OUTFILE_BASENAME "${APPLICATION_ICON_NAME}" ICON_INDEX 1)
-# --------------------------------------
+ecm_add_app_icon(APP_ICON ICONS "${OWNCLOUD_ICONS}" SIDEBAR_ICONS "${OWNCLOUD_SIDEBAR_ICONS}" OUTFILE_BASENAME "${APPLICATION_ICON_NAME}")
 
-if(WIN32)
-# merge *.rc.in files for Windows (multiple ICON resources must be placed in a single file, otherwise, this won't work de to a bug in Windows compiler https://developercommunity.visualstudio.com/t/visual-studio-2017-prof-1557-cvt1100-duplicate-res/363156)
-    function(merge_files IN_FILE OUT_FILE)
-        file(READ ${IN_FILE} CONTENTS)
-        message("Merging ${IN_FILE} into ${OUT_FILE}")
-        file(APPEND ${OUT_FILE} "${CONTENTS}")
-    endfunction()
-    message("APP_ICON is: ${APP_ICON}")
-    if(APP_ICON)
-        get_filename_component(RC_IN_FOLDER ${APP_ICON}} DIRECTORY)
+if(WIN32 AND EXISTS ${APP_ICON_WIN_FOLDER_SVG})
+    get_filename_component(output_icon_name_win ${APP_ICON_WIN_FOLDER_SVG} NAME_WLE)
+    # Product icon (for smallest size)
+    foreach(size IN ITEMS 16;20)
+        generate_sized_png_from_svg(${APP_ICON_SVG} ${size} OUTPUT_ICON_NAME ${output_icon_name_win} OUTPUT_ICON_PATH "${APP_SECONDARY_ICONS}/")
+    endforeach()
 
-        file(GLOB_RECURSE RC_IN_FILES "${RC_IN_FOLDER}/*rc.in")
+    # Product icon with Windows folder (for sizes larger than 20)
+    foreach(size IN ITEMS 24;32;40;48;64;128;256;512;1024)
+        generate_sized_png_from_svg(${APP_ICON_WIN_FOLDER_SVG} ${size} OUTPUT_ICON_NAME ${output_icon_name_win} OUTPUT_ICON_PATH "${APP_SECONDARY_ICONS}/")
+    endforeach()
 
-        foreach(rc_in_file IN ITEMS ${RC_IN_FILES})
-          get_filename_component(rc_in_file_name ${rc_in_file} NAME)
-          get_filename_component(app_icon_name "${APP_ICON}.in" NAME)
-          if(NOT "${rc_in_file_name}" STREQUAL "${app_icon_name}")
-              merge_files(${rc_in_file} "${APP_ICON}.in")
-              if (DEFINED APPLICATION_FOLDER_ICON_INDEX)
-                  MATH(EXPR APPLICATION_FOLDER_ICON_INDEX "${APPLICATION_FOLDER_ICON_INDEX}+1")
-                  message("APPLICATION_FOLDER_ICON_INDEX is now set to: ${APPLICATION_FOLDER_ICON_INDEX}")
-              endif()
-          endif()
-        endforeach()
-    endif()
+    file(GLOB OWNCLOUD_ICONS_WIN_FOLDER "${APP_SECONDARY_ICONS}/*-${APPLICATION_ICON_NAME}-icon*")
+    set(APP_ICON_WIN_FOLDER_ICO_NAME "${APPLICATION_ICON_NAME}-win-folder")
+    ecm_add_app_icon(APP_ICON ICONS ${OWNCLOUD_ICONS_WIN_FOLDER} OUTFILE_BASENAME "${APP_ICON_WIN_FOLDER_ICO_NAME}")
+
+    # We need to patch the resource files generated by `ecm_add_app_icon` to allow multiple icons in the same executable.
+    file(WRITE  "${CMAKE_CURRENT_BINARY_DIR}/${APP_ICON_WIN_FOLDER_ICO_NAME}.rc.in" "\n") # avoid resource linker complaining about duplicate icon resources
+    file(WRITE  "${CMAKE_CURRENT_BINARY_DIR}/${APPLICATION_ICON_NAME}.rc.in" "IDI_ICON1        ICON        DISCARDABLE    \"${CMAKE_CURRENT_BINARY_DIR}/${APPLICATION_ICON_NAME}.ico\"\n")
+    file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/${APPLICATION_ICON_NAME}.rc.in" "IDI_ICON2        ICON        DISCARDABLE    \"${CMAKE_CURRENT_BINARY_DIR}/${APP_ICON_WIN_FOLDER_ICO_NAME}.ico\"\n")
+
+    # The icon index used in code is 0-indexed, whereas the resource starts indexing from 1.
+    set(APPLICATION_FOLDER_ICON_INDEX 1)
 endif()
+
 # --------------------------------------
 
 if(UNIX AND NOT APPLE)
@@ -563,7 +538,6 @@ target_link_libraries(nextcloudCore
   PUBLIC
   Nextcloud::sync
   Qt::Widgets
-  Qt::GuiPrivate
   Qt::Svg
   Qt::Network
   Qt::Xml
@@ -587,7 +561,6 @@ add_subdirectory(socketapi)
 # skip unity inclusion for files which cause problems with a CMake unity build
 set_property(SOURCE
     ${CMAKE_CURRENT_SOURCE_DIR}/socketapi/socketapi.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/socketapi/socketuploadjob.cpp
     PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
 
 foreach(FILE IN LISTS client_UI_SRCS)

@@ -95,11 +95,15 @@ void OwncloudHttpCredsPage::initializePage()
         const QString user = url.userName();
         const QString password = url.password();
 
+        _ui.leUsername->setText(user);
+        _ui.lePassword->setText(password);
+
         if (!user.isEmpty()) {
-            _ui.leUsername->setText(user);
-        }
-        if (!password.isEmpty()) {
-            _ui.lePassword->setText(password);
+            _ui.errorLabel->setVisible(false);
+            startSpinner();
+
+            emit completeChanged();
+            emit connectToOCUrl(field("OCUrl").toString().simplified());
         }
     }
     _ui.tokenLabel->setText(HttpCredentialsGui::requestAppPasswordText(ocWizard->account().data()));
@@ -115,7 +119,7 @@ void OwncloudHttpCredsPage::cleanupPage()
 
 bool OwncloudHttpCredsPage::validatePage()
 {
-    if (_ui.leUsername->text().isEmpty() || _ui.lePassword->text().isEmpty()) {
+    if (_ui.leUsername->text().isEmpty()) {
         return false;
     }
 
@@ -140,17 +144,6 @@ bool OwncloudHttpCredsPage::validatePage()
         return true;
     }
     return true;
-}
-
-int OwncloudHttpCredsPage::nextId() const
-{
-    const auto ocWizard = qobject_cast<OwncloudWizard *>(wizard());
-    Q_ASSERT(ocWizard);
-    if (ocWizard->needsToAcceptTermsOfService()) {
-        return WizardCommon::Page_TermsOfService;
-    }
-
-    return WizardCommon::Page_AdvancedSetup;
 }
 
 void OwncloudHttpCredsPage::setConnected()

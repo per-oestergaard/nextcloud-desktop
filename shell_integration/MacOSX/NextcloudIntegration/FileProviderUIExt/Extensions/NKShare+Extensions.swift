@@ -10,68 +10,48 @@ import AppKit
 import NextcloudKit
 
 extension NKShare {
-    enum ShareType: Int {
-        case internalLink = -1
-        case user = 0
-        case group = 1
-        case publicLink = 3
-        case email = 4
-        case federatedCloud = 6
-        case circle = 7
-        case talkConversation = 10
-    }
-
-    enum PermissionValues: Int {
-        case readShare = 1
-        case updateShare = 2
-        case createShare = 4
-        case deleteShare = 8
-        case shareShare = 16
-        case all = 31
-    }
-
     var typeImage: NSImage? {
         var image: NSImage?
         switch shareType {
         case ShareType.internalLink.rawValue:
             image = NSImage(
                 systemSymbolName: "square.and.arrow.up.circle.fill",
-                accessibilityDescription: "Internal link share icon"
+                accessibilityDescription: String(localized: "Internal link share icon")
             )
         case ShareType.user.rawValue:
             image = NSImage(
                 systemSymbolName: "person.circle.fill", 
-                accessibilityDescription: "User share icon"
+                accessibilityDescription: String(localized: "User share icon")
             )
         case ShareType.group.rawValue:
             image = NSImage(
                 systemSymbolName: "person.2.circle.fill",
-                accessibilityDescription: "Group share icon"
+                accessibilityDescription: String(localized: "Group share icon")
             )
         case ShareType.publicLink.rawValue:
             image = NSImage(
                 systemSymbolName: "link.circle.fill",
-                accessibilityDescription: "Public link share icon"
+                accessibilityDescription: String(localized: "Public link share icon")
             )
         case ShareType.email.rawValue:
             image = NSImage(
                 systemSymbolName: "envelope.circle.fill",
-                accessibilityDescription: "Email share icon"
+                accessibilityDescription: String(localized: "Email share icon")
             )
         case ShareType.federatedCloud.rawValue:
             image = NSImage(
                 systemSymbolName: "cloud.circle.fill",
-                accessibilityDescription: "Federated cloud share icon"
+                accessibilityDescription: String(localized: "Federated cloud share icon")
             )
-        case ShareType.circle.rawValue:
+        case ShareType.team.rawValue:
             image = NSImage(
                 systemSymbolName: "circle.circle.fill",
-                accessibilityDescription: "Circle share icon"
+                accessibilityDescription: String(localized: "Team share icon")
             )
         case ShareType.talkConversation.rawValue:
             image = NSImage(
                 systemSymbolName: "message.circle.fill",
-                accessibilityDescription: "Talk conversation share icon"
+                accessibilityDescription: String(localized: "Talk conversation share icon")
             )
         default:
             return nil
@@ -93,23 +73,23 @@ extension NKShare {
 
         switch shareType {
         case ShareType.internalLink.rawValue:
-            return "Internal share (requires access to file)"
+            return String(localized: "Internal share (requires access to file)")
         case ShareType.user.rawValue:
-            return "User share (\(shareWith))"
+            return String(format: String(localized: "User share (%@)"), shareWith)
         case ShareType.group.rawValue:
-            return "Group share (\(shareWith))"
+            return String(format: String(localized: "Group share (%@)"), shareWith)
         case ShareType.publicLink.rawValue:
-            return "Public link share"
+            return String(localized: "Public link share")
         case ShareType.email.rawValue:
-            return "Email share (\(shareWith))"
+            return String(format: String(localized: "Email share (%@)"), shareWith)
         case ShareType.federatedCloud.rawValue:
-            return "Federated cloud share (\(shareWith))"
-        case ShareType.circle.rawValue:
-            return "Circle share (\(shareWith))"
+            return String(format: String(localized: "Federated cloud share (%@)"), shareWith)
+        case ShareType.team.rawValue:
+            return String(format: String(localized: "Team share (%@)"), shareWith)
         case ShareType.talkConversation.rawValue:
-            return "Talk conversation share (\(shareWith))"
+            return String(format: String(localized: "Talk conversation share (%@)"), shareWith)
         default:
-            return "Unknown share"
+            return String(localized: "Unknown share")
         }
     }
 
@@ -121,12 +101,15 @@ extension NKShare {
     }
 
     var shareesCanEdit: Bool {
-        get { (permissions & PermissionValues.updateShare.rawValue) != 0 }
+        get {
+            NKShare.Permission(rawValue: permissions).contains(.update)
+        }
+
         set {
             if newValue {
-                permissions |= NKShare.PermissionValues.updateShare.rawValue
+                permissions = NKShare.Permission(rawValue: permissions).union(.update).rawValue
             } else {
-                permissions &= ~NKShare.PermissionValues.updateShare.rawValue
+                permissions = NKShare.Permission(rawValue: permissions).subtracting(.update).rawValue
             }
         }
     }

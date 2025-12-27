@@ -16,6 +16,8 @@
 #include <QVarLengthArray>
 #include <set>
 
+using namespace Qt::StringLiterals;
+
 Q_DECLARE_METATYPE(QPersistentModelIndex)
 
 namespace OCC {
@@ -254,10 +256,6 @@ QVariant FolderStatusModel::data(const QModelIndex &index, int role) const
         return folder->virtualFilesEnabled() && folder->vfs().mode() != Vfs::Mode::WindowsCfApi
             ? QStringList(tr("Virtual file support is enabled."))
             : QStringList();
-    case FolderStatusDelegate::SyncRunning:
-        return folder->syncResult().status() == SyncResult::SyncRunning;
-    case FolderStatusDelegate::SyncDate:
-        return folder->syncResult().syncTime();
     case FolderStatusDelegate::HeaderRole:
         return folder->shortGuiRemotePathOrAppName();
     case FolderStatusDelegate::FolderAliasRole:
@@ -278,38 +276,34 @@ QVariant FolderStatusModel::data(const QModelIndex &index, int role) const
         toolTip += folderInfo._folder->path();
         return toolTip;
     }
-    case FolderStatusDelegate::FolderStatusIconRole:
-        if (accountConnected) {
-            const auto theme = Theme::instance();
-            const auto status = folder->syncResult().status();
-            if (folder->syncPaused()) {
-                return theme->folderDisabledIcon();
-            } else {
-                if (status == SyncResult::SyncPrepare || status == SyncResult::Undefined) {
-                    return theme->syncStateIcon(SyncResult::SyncRunning);
-                } else {
-                    // The "Problem" *result* just means some files weren't
-                    // synced, so we show "Success" in these cases. But we
-                    // do use the "Problem" *icon* for unresolved conflicts.
-                    if (status == SyncResult::Success || status == SyncResult::Problem) {
-                        if (folder->syncResult().hasUnresolvedConflicts()) {
-                            return theme->syncStateIcon(SyncResult::Problem);
-                        } else {
-                            return theme->syncStateIcon(SyncResult::Success);
-                        }
-                    } else {
-                        return theme->syncStateIcon(status);
-                    }
-                }
-            }
-        } else {
-            return Theme::instance()->folderOfflineIcon();
+    case FolderStatusDelegate::FolderStatusIconRole: {
+        if (!accountConnected) {
+            return Theme::instance()->folderStateIcon(SyncResult::SetupError);
         }
+
+        const auto theme   = Theme::instance();
+        const auto result  = folder->syncResult();
+        const auto status  = result.status();
+
+        if (folder->syncPaused()) {
+            return theme->folderStateIcon(SyncResult::Paused);
+        }
+
+        if (status == SyncResult::SyncPrepare || status == SyncResult::Undefined) {
+            return theme->folderStateIcon(SyncResult::SyncRunning);
+        }
+
+        if (status == SyncResult::Success || status == SyncResult::Problem) {
+            return theme->folderStateIcon(result.hasUnresolvedConflicts()
+                ? SyncResult::Problem
+                : SyncResult::Success);
+        }
+
+        return theme->folderStateIcon(status);
+    }
     case FolderStatusDelegate::SyncProgressItemString:
         // e.g. Syncing fileName1, filename2
         return progress._progressString;
-    case FolderStatusDelegate::WarningCount:
-        return progress._warningCount;
     case FolderStatusDelegate::SyncProgressOverallPercent:
         return progress._overallPercent;
     case FolderStatusDelegate::SyncProgressOverallString:
@@ -341,7 +335,7 @@ bool FolderStatusModel::setData(const QModelIndex &index, const QVariant &value,
                 const auto parentInfo = infoForIndex(parent);
                 if (parentInfo && parentInfo->_checked != Qt::Checked) {
                     auto hasUnchecked = false;
-                    for (const auto &sub : parentInfo->_subs) {
+                    for (const auto &sub : std::as_const(parentInfo->_subs)) {
                         if (sub._checked != Qt::Checked) {
                             hasUnchecked = true;
                             break;
@@ -722,7 +716,7 @@ void FolderStatusModel::slotUpdateDirectories(const QStringList &list)
     }
 
     std::set<QString> selectiveSyncUndecidedSet; // not QSet because it's not sorted
-    for (const auto &str : selectiveSyncUndecidedList) {
+    for (const auto &str : std::as_const(selectiveSyncUndecidedList)) {
         if (str.startsWith(parentInfo->_path) || parentInfo->_path == QLatin1String("/")) {
             selectiveSyncUndecidedSet.insert(str);
         }
@@ -740,7 +734,7 @@ void FolderStatusModel::slotUpdateDirectories(const QStringList &list)
 
     QVector<SubFolderInfo> newSubs;
     newSubs.reserve(sortedSubfolders.size());
-    for (const auto &path : sortedSubfolders) {
+    for (const auto &path : std::as_const(sortedSubfolders)) {
         auto relativePath = path.mid(pathToRemove.size());
         if (parentInfo->_folder->isFileExcludedRelative(relativePath)) {
             continue;
@@ -750,8 +744,8 @@ void FolderStatusModel::slotUpdateDirectories(const QStringList &list)
         newInfo._folder = parentInfo->_folder;
         newInfo._pathIdx = parentInfo->_pathIdx;
         newInfo._pathIdx << newSubs.size();
-        newInfo._isExternal = permissionMap.value(removeTrailingSlash(path)).toString().contains("M");
-        newInfo._isEncrypted = encryptionMap.value(removeTrailingSlash(path)).toString() == QStringLiteral("1");
+        newInfo._isExternal = permissionMap.value(removeTrailingSlash(path)).toString().contains("M"_L1);
+        newInfo._isEncrypted = encryptionMap.value(removeTrailingSlash(path)).toString() == "1"_L1;
         newInfo._path = relativePath;
 
         newInfo._isNonDecryptable = newInfo.isEncrypted()
@@ -789,7 +783,7 @@ void FolderStatusModel::slotUpdateDirectories(const QStringList &list)
         } else if (parentInfo->_checked == Qt::Checked) {
             newInfo._checked = Qt::Checked;
         } else {
-            for (const auto &str : selectiveSyncBlackList) {
+            for (const auto &str : std::as_const(selectiveSyncBlackList)) {
                 if (str == relativePath || str == QLatin1String("/")) {
                     newInfo._checked = Qt::Unchecked;
                     break;
@@ -847,8 +841,8 @@ void FolderStatusModel::slotLscolFinishedWithError(QNetworkReply *reply)
     }
     auto parentInfo = infoForIndex(idx);
     if (parentInfo) {
-        qCWarning(lcFolderStatus) << reply->errorString();
-        parentInfo->_lastErrorString = reply->errorString();
+        qCWarning(lcFolderStatus) << reply->errorString() << job->errorString();
+        parentInfo->_lastErrorString = job->errorString();
 
         parentInfo->resetSubs(this, idx);
 
@@ -948,7 +942,7 @@ void FolderStatusModel::slotApplySelectiveSync()
             }
             //The part that changed should not be read from the DB on next sync because there might be new folders
             // (the ones that are no longer in the blacklist)
-            for (const auto &it : changes) {
+            for (const auto &it : std::as_const(changes)) {
                 folder->journalDb()->schedulePathForRemoteDiscovery(it);
                 folder->schedulePathForLocalDiscovery(it);
             }
@@ -987,8 +981,7 @@ void FolderStatusModel::slotSetProgress(const ProgressInfo &progress)
         _isSyncRunningForAwhile = false;
     }
 
-    const QVector<int> roles{ FolderStatusDelegate::SyncProgressItemString, FolderStatusDelegate::WarningCount,
-                             Qt::ToolTipRole };
+    const QVector<int> roles{ FolderStatusDelegate::SyncProgressItemString, Qt::ToolTipRole };
 
     if (progress.status() == ProgressInfo::Discovery) {
         if (!progress._currentDiscoveredRemoteFolder.isEmpty()) {
@@ -1017,10 +1010,10 @@ void FolderStatusModel::slotSetProgress(const ProgressInfo &progress)
     // find the single item to display:  This is going to be the bigger item, or the last completed
     // item if no items are in progress.
     auto curItem = progress._lastCompletedItem;
-    auto curItemProgress = -1; // -1 means finished
-    auto biggerItemSize = 0;
-    auto estimatedUpBw = 0;
-    auto estimatedDownBw = 0;
+    qint64 curItemProgress = -1; // -1 means finished
+    qint64 biggerItemSize = 0;
+    qint64 estimatedUpBw = 0;
+    qint64 estimatedDownBw = 0;
     QStringList filenamesList;
     for (const auto &syncFile : progress._currentItems) {
         if (curItemProgress == -1 || (ProgressInfo::isSizeDependent(syncFile._item)
@@ -1236,7 +1229,7 @@ void FolderStatusModel::slotSyncAllPendingBigFolders()
             qCWarning(lcFolderStatus) << "Could not read selective sync list from db.";
             return;
         }
-        for (const auto &undecidedFolder : undecidedList) {
+        for (const auto &undecidedFolder : std::as_const(undecidedList)) {
             blackList.removeAll(undecidedFolder);
         }
         folder->journalDb()->setSelectiveSyncList(SyncJournalDb::SelectiveSyncBlackList, blackList);
@@ -1259,7 +1252,7 @@ void FolderStatusModel::slotSyncAllPendingBigFolders()
         }
         // The part that changed should not be read from the DB on next sync because there might be new folders
         // (the ones that are no longer in the blacklist)
-        for (const auto &it : undecidedList) {
+        for (const auto &it : std::as_const(undecidedList)) {
             folder->journalDb()->schedulePathForRemoteDiscovery(it);
             folder->schedulePathForLocalDiscovery(it);
         }

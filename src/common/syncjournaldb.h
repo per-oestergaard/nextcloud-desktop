@@ -21,6 +21,8 @@
 #include "common/result.h"
 #include "common/pinstate.h"
 
+class TestSyncJournalDB;
+
 namespace OCC {
 class SyncJournalFileRecord;
 
@@ -73,6 +75,8 @@ public:
         const QByteArray &contentChecksumType);
     [[nodiscard]] bool updateLocalMetadata(const QString &filename,
         qint64 modtime, qint64 size, quint64 inode, const SyncJournalFileLockInfo &lockInfo);
+
+    [[nodiscard]] bool hasFileIds(const QList<qint64> &fileIds);
 
     /// Return value for hasHydratedOrDehydratedFiles()
     struct HasHydratedDehydrated
@@ -170,6 +174,10 @@ public:
     QStringList getSelectiveSyncList(SelectiveSyncListType type, bool *ok);
     /* Write the selective sync list (remove all other entries of that list */
     void setSelectiveSyncList(SelectiveSyncListType type, const QStringList &list);
+
+    QStringList addSelectiveSyncLists(SelectiveSyncListType type, const QString &path);
+
+    QStringList removeSelectiveSyncLists(SelectiveSyncListType type, const QString &path);
 
     /**
      * Make sure that on the next sync fileName and its parents are discovered from the server.
@@ -395,9 +403,12 @@ public slots:
 
 private:
     int getFileRecordCount();
+    [[nodiscard]] bool ensureCorrectEncryptionStatus();
     [[nodiscard]] bool updateDatabaseStructure();
     [[nodiscard]] bool updateMetadataTableStructure();
     [[nodiscard]] bool updateErrorBlacklistTableStructure();
+    [[nodiscard]] bool removeColumn(const QString &columnName);
+    [[nodiscard]] bool hasDefaultValue(const QString &columnName);
     bool sqlFail(const QString &log, const SqlQuery &query);
     void commitInternal(const QString &context, bool startTrans = true);
     void startTransaction();
@@ -443,6 +454,8 @@ private:
     QByteArray _journalMode;
 
     PreparedSqlQueryManager _queryManager;
+
+    friend class ::TestSyncJournalDB;
 };
 
 bool OCSYNC_EXPORT

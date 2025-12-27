@@ -16,6 +16,7 @@ AbstractButton {
     id: userLine
 
     signal showUserStatusSelector(int id)
+    signal showUserStatusMessageSelector(int id)
 
 
     Accessible.role: Accessible.MenuItem
@@ -39,7 +40,7 @@ AbstractButton {
             Rectangle {
                 id: accountStatusIndicatorBackground
                 visible: model.isConnected && model.serverHasUserStatus
-                width: accountStatusIndicator.sourceSize.width + 2
+                width: accountStatusIndicator.sourceSize.width + Style.trayFolderStatusIndicatorSizeOffset
                 height: width
                 color: "white"
                 anchors.bottom: accountAvatar.bottom
@@ -52,8 +53,8 @@ AbstractButton {
                 visible: model.isConnected && model.serverHasUserStatus
                 source: model.statusIcon
                 cache: false
-                x: accountStatusIndicatorBackground.x + 1
-                y: accountStatusIndicatorBackground.y + 1
+                x: accountStatusIndicatorBackground.x + Style.trayFolderStatusIndicatorSizeOffset / 2
+                y: accountStatusIndicatorBackground.y + Style.trayFolderStatusIndicatorSizeOffset / 2
                 sourceSize.width: Style.accountAvatarStateIndicatorSize
                 sourceSize.height: Style.accountAvatarStateIndicatorSize
 
@@ -77,6 +78,12 @@ AbstractButton {
                 elide: Text.ElideRight
                 font.pixelSize: Style.topLinePixelSize
                 font.bold: true
+
+                color: !userLine.parent.enabled
+                    ? userLine.parent.palette.mid
+                    : ((userLine.parent.highlighted || userLine.parent.down) && Qt.platform.os !== "windows"
+                        ? userLine.parent.palette.highlightedText
+                        : userLine.parent.palette.text)
             }
 
             RowLayout {
@@ -91,6 +98,12 @@ AbstractButton {
                     id: emoji
                     visible: model.statusEmoji !== ""
                     text: statusEmoji
+
+                    color: !userLine.parent.enabled
+                        ? userLine.parent.palette.mid
+                        : ((userLine.parent.highlighted || userLine.parent.down) && Qt.platform.os !== "windows"
+                            ? userLine.parent.palette.highlightedText
+                            : userLine.parent.palette.text)
                 }
 
                 EnforcedPlainTextLabel {
@@ -100,6 +113,12 @@ AbstractButton {
                     text: statusMessage
                     elide: Text.ElideRight
                     font.pixelSize: Style.subLinePixelSize
+
+                    color: !userLine.parent.enabled
+                        ? userLine.parent.palette.mid
+                        : ((userLine.parent.highlighted || userLine.parent.down) && Qt.platform.os !== "windows"
+                            ? userLine.parent.palette.highlightedText
+                            : userLine.parent.palette.text)
                 }
             }
 
@@ -111,7 +130,17 @@ AbstractButton {
                 text: server
                 elide: Text.ElideRight
                 font.pixelSize: Style.subLinePixelSize
+
+                color: !userLine.parent.enabled
+                    ? userLine.parent.palette.mid
+                    : ((userLine.parent.highlighted || userLine.parent.down) && Qt.platform.os !== "windows"
+                        ? userLine.parent.palette.highlightedText
+                        : userLine.parent.palette.text)
             }
+        }
+
+        Item { // Spacer
+            Layout.fillWidth: true
         }
 
         Button {
@@ -126,34 +155,55 @@ AbstractButton {
 
             onClicked: userMoreButtonMenu.visible ? userMoreButtonMenu.close() : userMoreButtonMenu.popup()
 
-            icon.source: "image://svgimage-custom-color/more.svg/" + palette.windowText
+            property var iconColor: !userLine.parent.enabled
+                ? userLine.parent.palette.mid
+                : (!hovered && ((userLine.parent.highlighted || userLine.parent.down) && Qt.platform.os !== "windows")
+                    ? userLine.parent.palette.highlightedText
+                    : userLine.parent.palette.text)
+            icon.source: "image://svgimage-custom-color/more.svg/" + iconColor
 
             AutoSizingMenu {
                 id: userMoreButtonMenu
                 closePolicy: Menu.CloseOnPressOutsideParent | Menu.CloseOnEscape
+                height: implicitHeight
 
                 MenuItem {
-                    visible: model.isConnected && model.serverHasUserStatus
-                    height: visible ? implicitHeight : 0
+                    id: setStatusButton
+                    enabled: model.isConnected && model.serverHasUserStatus
                     text: qsTr("Set status")
                     font.pixelSize: Style.topLinePixelSize
                     hoverEnabled: true
+
                     onClicked: showUserStatusSelector(index)
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: text
+                    Accessible.onPressAction: setStatusButton.clicked()
                }
 
                 MenuItem {
-                    text: model.isConnected ? qsTr("Log out") : qsTr("Log in")
+                    id: statusMessageButton
+                    enabled: model.isConnected && model.serverHasUserStatus
+                    text: qsTr("Status message")
                     font.pixelSize: Style.topLinePixelSize
                     hoverEnabled: true
-                    onClicked: {
-                        model.isConnected ? UserModel.logout(index) : UserModel.login(index)
-                        accountMenu.close()
-                    }
+
+                    onClicked: showUserStatusMessageSelector(index)
 
                     Accessible.role: Accessible.Button
-                    Accessible.name: model.isConnected ? qsTr("Log out") : qsTr("Log in")
+                    Accessible.name: text
+                    Accessible.onPressAction: statusMessageButton.clicked()
+               }
 
-                    onPressed: {
+                MenuItem {
+                    id: logInOutButton
+                    enabled: model.canLogout
+                    text: model.isConnected ? qsTr("Log out") : qsTr("Log in")
+                    width: parent.width
+                    font.pixelSize: Style.topLinePixelSize
+                    hoverEnabled: true
+
+                    onClicked: {
                         if (model.isConnected) {
                             UserModel.logout(index)
                         } else {
@@ -161,11 +211,15 @@ AbstractButton {
                         }
                         accountMenu.close()
                     }
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: text
+                    Accessible.onPressAction: logInOutButton.clicked()
                }
 
                 MenuItem {
                     id: removeAccountButton
-                    text: qsTr("Remove account")
+                    text: model.removeAccountText
                     font.pixelSize: Style.topLinePixelSize
                     hoverEnabled: true
                     onClicked: {
@@ -181,3 +235,4 @@ AbstractButton {
         }
     }
 }   // MenuItem userLine
+
